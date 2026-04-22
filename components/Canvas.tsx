@@ -6,8 +6,6 @@ import ReactFlow, {
   BackgroundVariant,
   type NodeTypes,
 } from 'reactflow';
-import 'reactflow/dist/style.css';
-
 import { usePipelineStore } from '@/store/pipelineStore';
 import AgentNode from './nodes/AgentNode';
 import DecisionNode from './nodes/DecisionNode';

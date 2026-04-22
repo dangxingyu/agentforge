@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { applyNodeChanges, applyEdgeChanges, addEdge } from 'reactflow';
 import type { NodeChange, EdgeChange, Connection } from 'reactflow';
-import type { FlowNode, FlowEdge, NodeData, ChatMessage, DesignerPhase, Pipeline } from '@/types/pipeline';
+import type { FlowNode, FlowEdge, NodeData, ChatMessage, DesignerPhase, Pipeline, FormQuestion } from '@/types/pipeline';
 import { getTemplate } from '@/lib/templates';
 import { generatePipelineId } from '@/lib/pipeline';
 
@@ -24,7 +24,7 @@ interface PipelineStore {
   selectNode: (id: string | null) => void;
   loadTemplate: (templateId: string) => void;
   loadPipeline: (pipeline: Pipeline) => void;
-  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
+  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'> & { formQuestions?: FormQuestion[] }) => void;
   appendToLastMessage: (chunk: string) => void;
   setPhase: (phase: DesignerPhase) => void;
   setStreaming: (streaming: boolean) => void;

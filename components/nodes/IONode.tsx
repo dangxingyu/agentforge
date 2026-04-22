@@ -3,8 +3,8 @@ import { Handle, Position, type NodeProps } from 'reactflow';
 import type { NodeData } from '@/types/pipeline';
 import { ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 
-export default function IONode({ data, selected, type: nodeType }: NodeProps<NodeData> & { type?: string }) {
-  const isInput = nodeType === 'input';
+export default function IONode({ data, selected, type }: NodeProps<NodeData>) {
+  const isInput = type === 'input';
   const colorClass = isInput
     ? selected ? 'border-slate-400 shadow-slate-400/20 shadow-2xl' : 'border-slate-600'
     : selected ? 'border-violet-400 shadow-violet-400/20 shadow-2xl' : 'border-violet-700/60';

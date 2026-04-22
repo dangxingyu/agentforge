@@ -362,11 +362,94 @@ const DAC: Pipeline = {
   ],
 };
 
+// ─── Map-Reduce ─────────────────────────────────────────────────────────────
+
+const MAP_REDUCE: Pipeline = {
+  id: 'map-reduce',
+  name: 'Map-Reduce',
+  description:
+    'Split an input into chunks, map each chunk through an LLM agent in parallel, then reduce/aggregate the results into a single coherent output.',
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z',
+  edges: [
+    edge('e1', 'input', 'splitter'),
+    edge('e2', 'splitter', 'fanOut'),
+    edge('e3', 'fanOut', 'mapper', { label: '× chunks', animated: true }),
+    edge('e4', 'mapper', 'collector'),
+    edge('e5', 'collector', 'reducer'),
+    edge('e6', 'reducer', 'qualityCheck'),
+    edge('e7', 'qualityCheck', 'output', {
+      sourceHandle: 'true', label: 'Complete',
+      animated: true, style: { stroke: '#22c55e' },
+    }),
+    edge('e8', 'qualityCheck', 'reducer', {
+      sourceHandle: 'false', label: 'Gaps found',
+      animated: true, style: { stroke: '#f59e0b' },
+    }),
+  ],
+  nodes: [
+    { id: 'input', type: 'input', position: { x: 250, y: 40 }, data: { label: 'Input Document', description: 'Large text, dataset, or multi-part input' } },
+    {
+      id: 'splitter', type: 'llm_agent', position: { x: 250, y: 160 },
+      data: {
+        label: 'Chunk Splitter', description: 'Splits input into independent chunks for parallel processing',
+        agentConfig: {
+          role: 'splitter', model: 'claude-haiku-4-5-20251001', temperature: 0.1, maxTokens: 1024,
+          systemPrompt: 'You are a document chunking specialist. Split the given input into logical, self-contained chunks that can be processed independently. Output a JSON array of chunks, each with a "chunk_id" and "content" field. Ensure no important context is lost at chunk boundaries.',
+        },
+      },
+    },
+    {
+      id: 'fanOut', type: 'parallel', position: { x: 250, y: 320 },
+      data: {
+        label: 'Map Fan-out', description: 'Distribute chunks to parallel mappers',
+        parallelConfig: { numParallel: 8, label: 'chunk processors' },
+      },
+    },
+    {
+      id: 'mapper', type: 'llm_agent', position: { x: 250, y: 480 },
+      data: {
+        label: 'Mapper Agent', description: 'Processes a single chunk — extract, transform, or analyze',
+        agentConfig: {
+          role: 'mapper', model: 'claude-sonnet-4-6', temperature: 0.3, maxTokens: 2048,
+          systemPrompt: 'You are a focused data processor. Given one chunk of a larger document, perform the requested analysis or transformation on this chunk alone. Output structured JSON with your results. Be thorough but stay within the scope of your assigned chunk.',
+        },
+      },
+    },
+    {
+      id: 'collector', type: 'aggregator', position: { x: 250, y: 640 },
+      data: {
+        label: 'Collect Map Results', description: 'Gather all mapper outputs',
+        aggregatorConfig: { strategy: 'all' },
+      },
+    },
+    {
+      id: 'reducer', type: 'llm_agent', position: { x: 250, y: 800 },
+      data: {
+        label: 'Reducer Agent', description: 'Merges all chunk results into a single coherent output',
+        agentConfig: {
+          role: 'reducer', model: 'claude-opus-4-7', temperature: 0.4, maxTokens: 4096,
+          systemPrompt: 'You are a master synthesizer and data reducer. Given the mapped results from multiple chunks, combine them into a single, coherent, comprehensive output. Resolve any contradictions between chunks, eliminate redundancy, and ensure the final result reads as if it were produced from the original input as a whole.',
+        },
+      },
+    },
+    {
+      id: 'qualityCheck', type: 'decision', position: { x: 250, y: 960 },
+      data: {
+        label: 'Completeness Check', description: 'Are all chunks accounted for and consistent?',
+        decisionConfig: { condition: 'coverage >= 0.95 && no_contradictions', trueLabel: 'Complete', falseLabel: 'Gaps Found' },
+      },
+    },
+    { id: 'output', type: 'output', position: { x: 250, y: 1120 }, data: { label: 'Reduced Output', description: 'Final merged result from all chunks' } },
+  ],
+};
+
 export const TEMPLATES: PipelineTemplate[] = [
   { id: 'momus', name: 'Momus IMO Solver', description: 'Multi-agent iterative pipeline for competition mathematics', category: 'Research', pipeline: MOMUS },
   { id: 'generate-critique-refine', name: 'Generate → Critique → Refine', description: 'Iterative quality-improvement loop', category: 'Quality', pipeline: GCR },
   { id: 'parallel-and-distill', name: 'Parallel Solve → Distill', description: 'N parallel solvers distilled into one best answer', category: 'Parallel', pipeline: PAD },
   { id: 'divide-and-conquer', name: 'Divide and Conquer', description: 'Decompose, solve in parallel, synthesize', category: 'Parallel', pipeline: DAC },
+  { id: 'map-reduce', name: 'Map-Reduce', description: 'Split → map in parallel → reduce to single output', category: 'Data', pipeline: MAP_REDUCE },
 ];
 
 export function getTemplate(id: string): PipelineTemplate | undefined {

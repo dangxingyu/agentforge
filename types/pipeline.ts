@@ -108,11 +108,27 @@ export interface Pipeline {
   updatedAt: string;
 }
 
+export interface FormOption {
+  label: string;
+  value: string;
+}
+
+export interface FormQuestion {
+  id: string;
+  type: 'radio' | 'checkbox' | 'select' | 'text' | 'number';
+  label: string;
+  options?: FormOption[];
+  placeholder?: string;
+  min?: number;
+  max?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  formQuestions?: FormQuestion[];
 }
 
 export type DesignerPhase = 'initial' | 'gathering' | 'generating' | 'ready';

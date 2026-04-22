@@ -14,7 +14,7 @@ export default function Home() {
 
   useEffect(() => {
     loadTemplate('momus');
-  }, []);
+  }, [loadTemplate]);
 
   return (
     <div className="flex flex-col h-screen bg-[#080810] text-slate-200 overflow-hidden">

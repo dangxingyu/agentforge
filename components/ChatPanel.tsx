@@ -1,8 +1,9 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, Trash2, Bot, User } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Sparkles, Trash2, Bot, User, CheckCircle2 } from 'lucide-react';
 import { usePipelineStore } from '@/store/pipelineStore';
 import { TEMPLATES } from '@/lib/templates';
+import type { FormQuestion } from '@/types/pipeline';
 
 const WELCOME = `Hi! I'm AgentForge, your AI pipeline architect.
 
@@ -37,6 +38,9 @@ export default function ChatPanel() {
     setStreaming(true);
 
     addMessage({ role: 'assistant', content: '' });
+
+    // After the user's first message in 'gathering' phase, queue design questions
+    const showForm = phase === 'initial';
 
     try {
       const allMsgs = [...usePipelineStore.getState().messages];
@@ -82,8 +86,24 @@ export default function ChatPanel() {
           }
         }
       }
+      // After the first user message, show design form questions
+      if (showForm) {
+        addMessage({
+          role: 'assistant',
+          content: 'To help me design the best pipeline, tell me a bit more about your preferences:',
+          formQuestions: PIPELINE_DESIGN_QUESTIONS,
+        });
+      }
     } catch (err) {
       appendToLastMessage('\n\n_Error: Could not connect to API. Make sure ANTHROPIC_API_KEY is set._');
+      // Still show the form for offline / no-API usage
+      if (showForm) {
+        addMessage({
+          role: 'assistant',
+          content: 'While the API connects, you can fill out these design preferences:',
+          formQuestions: PIPELINE_DESIGN_QUESTIONS,
+        });
+      }
     } finally {
       setStreaming(false);
     }
@@ -136,6 +156,20 @@ export default function ChatPanel() {
                 : 'bg-indigo-600 text-white'
             }`}>
               <MarkdownMessage content={msg.content || (isStreaming ? '▋' : '')} />
+              {msg.formQuestions && msg.formQuestions.length > 0 && (
+                <FormQuestionCard
+                  questions={msg.formQuestions}
+                  onSubmit={(answers) => {
+                    // Format answers as a readable user message
+                    const lines = Object.entries(answers)
+                      .filter(([, v]) => (Array.isArray(v) ? v.length > 0 : v))
+                      .map(([key, val]) => `${key}: ${Array.isArray(val) ? val.join(', ') : val}`);
+                    if (lines.length > 0) {
+                      addMessage({ role: 'user', content: `My preferences:\n${lines.join('\n')}` });
+                    }
+                  }}
+                />
+              )}
             </div>
           </div>
         ))}
@@ -217,6 +251,182 @@ function MarkdownMessage({ content }: { content: string }) {
           </p>
         );
       })}
+    </div>
+  );
+}
+
+// ── Structured Form Questions ────────────────────────────────────────────────
+
+const PIPELINE_DESIGN_QUESTIONS: FormQuestion[] = [
+  {
+    id: 'pattern',
+    type: 'radio',
+    label: 'What pipeline pattern fits best?',
+    options: [
+      { label: 'Generate → Critique → Refine (iterative quality loop)', value: 'gcr' },
+      { label: 'Map-Reduce (split, process chunks, merge)', value: 'map-reduce' },
+      { label: 'Parallel Solve → Distill (N attempts, pick best)', value: 'parallel-distill' },
+      { label: 'Divide & Conquer (decompose, solve sub-problems)', value: 'divide-conquer' },
+      { label: 'Custom / not sure', value: 'custom' },
+    ],
+  },
+  {
+    id: 'parallelism',
+    type: 'select',
+    label: 'How many parallel agents?',
+    options: [
+      { label: '2 (fast, low cost)', value: '2' },
+      { label: '3-4 (balanced)', value: '4' },
+      { label: '5-8 (thorough)', value: '8' },
+      { label: '8+ (exhaustive)', value: '12' },
+    ],
+  },
+  {
+    id: 'model',
+    type: 'radio',
+    label: 'Primary model tier?',
+    options: [
+      { label: 'Sonnet (fast & capable)', value: 'claude-sonnet-4-6' },
+      { label: 'Opus (maximum quality)', value: 'claude-opus-4-7' },
+      { label: 'Haiku (fastest, cost-efficient)', value: 'claude-haiku-4-5-20251001' },
+      { label: 'Mixed (different models per role)', value: 'mixed' },
+    ],
+  },
+  {
+    id: 'human_review',
+    type: 'checkbox',
+    label: 'Include these optional features?',
+    options: [
+      { label: 'Human-in-the-loop review step', value: 'human' },
+      { label: 'External tool/API calls', value: 'tools' },
+      { label: 'Quality gate with retry loop', value: 'quality-gate' },
+    ],
+  },
+];
+
+function FormQuestionCard({
+  questions,
+  onSubmit,
+}: {
+  questions: FormQuestion[];
+  onSubmit: (answers: Record<string, string | string[]>) => void;
+}) {
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
+  const [submitted, setSubmitted] = useState(false);
+
+  const setAnswer = useCallback((id: string, value: string | string[]) => {
+    setAnswers((prev) => ({ ...prev, [id]: value }));
+  }, []);
+
+  const toggleCheckbox = useCallback((id: string, value: string) => {
+    setAnswers((prev) => {
+      const current = (prev[id] as string[]) ?? [];
+      return {
+        ...prev,
+        [id]: current.includes(value)
+          ? current.filter((v) => v !== value)
+          : [...current, value],
+      };
+    });
+  }, []);
+
+  if (submitted) {
+    return (
+      <div className="flex items-center gap-2 py-1.5 text-xs text-green-400">
+        <CheckCircle2 size={13} />
+        <span>Preferences submitted</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 mt-2">
+      {questions.map((q) => (
+        <div key={q.id} className="space-y-1.5">
+          <p className="text-[11px] font-medium text-slate-300">{q.label}</p>
+
+          {/* Radio */}
+          {q.type === 'radio' && q.options?.map((opt) => (
+            <label key={opt.value} className="flex items-center gap-2 cursor-pointer group">
+              <input
+                type="radio"
+                name={q.id}
+                value={opt.value}
+                checked={answers[q.id] === opt.value}
+                onChange={() => setAnswer(q.id, opt.value)}
+                className="accent-indigo-500 w-3 h-3"
+              />
+              <span className="text-[11px] text-slate-400 group-hover:text-slate-200 transition-colors">
+                {opt.label}
+              </span>
+            </label>
+          ))}
+
+          {/* Checkbox */}
+          {q.type === 'checkbox' && q.options?.map((opt) => (
+            <label key={opt.value} className="flex items-center gap-2 cursor-pointer group">
+              <input
+                type="checkbox"
+                value={opt.value}
+                checked={((answers[q.id] as string[]) ?? []).includes(opt.value)}
+                onChange={() => toggleCheckbox(q.id, opt.value)}
+                className="accent-indigo-500 w-3 h-3 rounded"
+              />
+              <span className="text-[11px] text-slate-400 group-hover:text-slate-200 transition-colors">
+                {opt.label}
+              </span>
+            </label>
+          ))}
+
+          {/* Select */}
+          {q.type === 'select' && (
+            <select
+              value={(answers[q.id] as string) ?? ''}
+              onChange={(e) => setAnswer(q.id, e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 outline-none focus:border-indigo-600"
+            >
+              <option value="">Select…</option>
+              {q.options?.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Text input */}
+          {q.type === 'text' && (
+            <input
+              type="text"
+              value={(answers[q.id] as string) ?? ''}
+              onChange={(e) => setAnswer(q.id, e.target.value)}
+              placeholder={q.placeholder}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 outline-none focus:border-indigo-600"
+            />
+          )}
+
+          {/* Number input */}
+          {q.type === 'number' && (
+            <input
+              type="number"
+              min={q.min}
+              max={q.max}
+              value={(answers[q.id] as string) ?? ''}
+              onChange={(e) => setAnswer(q.id, e.target.value)}
+              placeholder={q.placeholder}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 outline-none focus:border-indigo-600"
+            />
+          )}
+        </div>
+      ))}
+
+      <button
+        onClick={() => {
+          setSubmitted(true);
+          onSubmit(answers);
+        }}
+        className="w-full py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
+      >
+        Submit preferences
+      </button>
     </div>
   );
 }
