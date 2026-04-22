@@ -40,12 +40,30 @@ export const MODEL_PROVIDERS: Record<ModelId, string> = {
   'gemini-2.0-flash': 'Google',
 };
 
+export type OutputFieldType = 'number' | 'string' | 'boolean' | 'enum' | 'array' | 'object';
+
+export interface OutputField {
+  /** Field name as it appears in the agent's JSON output (e.g. "score") */
+  name: string;
+  type: OutputFieldType;
+  /** Short description shown in autocomplete popovers */
+  description?: string;
+  /** For enum types, the allowed values */
+  enumValues?: string[];
+}
+
 export interface LLMAgentConfig {
   role: string;
   model: ModelId;
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
+  /**
+   * Declared output schema. Downstream decision/loop nodes reference these
+   * fields as `{{role.field}}` (e.g. `{{grader.score}} >= 0.8`).
+   * This is what makes pipeline conditions resolvable rather than free text.
+   */
+  outputSchema?: OutputField[];
 }
 
 export interface ParallelConfig {

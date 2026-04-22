@@ -44,7 +44,7 @@ const MOMUS: Pipeline = {
       id: 'outerLoop', type: 'loop', position: { x: 150, y: 160 },
       data: {
         label: 'Refinement Loop', description: 'Outer iteration over solve–grade cycle',
-        loopConfig: { maxIterations: 3, breakCondition: 'best_grade >= 0.95' },
+        loopConfig: { maxIterations: 3, breakCondition: '{{grader.score}} >= 0.95' },
       },
     },
     {
@@ -89,6 +89,13 @@ Evaluate the provided solution on:
 - Insight: Is there deep mathematical understanding?
 
 Return JSON: { "score": float (0-1), "verdict": "correct"|"partial"|"incorrect", "feedback": string, "key_insights": string[], "missing_steps": string[] }`,
+          outputSchema: [
+            { name: 'score', type: 'number', description: 'Overall quality score in [0, 1]' },
+            { name: 'verdict', type: 'enum', description: 'Categorical judgment', enumValues: ['correct', 'partial', 'incorrect'] },
+            { name: 'feedback', type: 'string', description: 'Free-form written critique' },
+            { name: 'key_insights', type: 'array', description: 'List of identified insights' },
+            { name: 'missing_steps', type: 'array', description: 'List of steps not yet justified' },
+          ],
         },
       },
     },
@@ -96,7 +103,7 @@ Return JSON: { "score": float (0-1), "verdict": "correct"|"partial"|"incorrect",
       id: 'gradeDecision', type: 'decision', position: { x: 150, y: 810 },
       data: {
         label: 'Grade Check', description: 'Has the solution reached the quality threshold?',
-        decisionConfig: { condition: 'max_score >= 0.8', trueLabel: 'Threshold Met', falseLabel: 'Retry' },
+        decisionConfig: { condition: '{{grader.score}} >= 0.8', trueLabel: 'Threshold Met', falseLabel: 'Retry' },
       },
     },
     {
@@ -194,7 +201,7 @@ const GCR: Pipeline = {
       id: 'loop', type: 'loop', position: { x: 250, y: 320 },
       data: {
         label: 'Refinement Loop', description: 'Iterate until quality threshold met',
-        loopConfig: { maxIterations: 5, breakCondition: 'quality_score >= 0.85' },
+        loopConfig: { maxIterations: 5, breakCondition: '{{critic.score}} >= 0.85' },
       },
     },
     {
@@ -204,6 +211,12 @@ const GCR: Pipeline = {
         agentConfig: {
           role: 'critic', model: 'claude-sonnet-4-6', temperature: 0.3, maxTokens: 1024,
           systemPrompt: 'You are a rigorous critic. Evaluate the provided response for accuracy, completeness, clarity, and quality. Return JSON: { "score": float (0-1), "strengths": string[], "weaknesses": string[], "suggestions": string[] }',
+          outputSchema: [
+            { name: 'score', type: 'number', description: 'Overall quality score in [0, 1]' },
+            { name: 'strengths', type: 'array', description: 'Things the draft does well' },
+            { name: 'weaknesses', type: 'array', description: 'Problems in the draft' },
+            { name: 'suggestions', type: 'array', description: 'Concrete improvement suggestions' },
+          ],
         },
       },
     },
@@ -211,7 +224,7 @@ const GCR: Pipeline = {
       id: 'qualityCheck', type: 'decision', position: { x: 250, y: 630 },
       data: {
         label: 'Quality Gate', description: 'Is the response good enough?',
-        decisionConfig: { condition: 'score >= 0.85', trueLabel: 'Approved', falseLabel: 'Revise' },
+        decisionConfig: { condition: '{{critic.score}} >= 0.85', trueLabel: 'Approved', falseLabel: 'Revise' },
       },
     },
     {
@@ -429,7 +442,18 @@ const MAP_REDUCE: Pipeline = {
         label: 'Reducer Agent', description: 'Merges all chunk results into a single coherent output',
         agentConfig: {
           role: 'reducer', model: 'claude-opus-4-7', temperature: 0.4, maxTokens: 4096,
-          systemPrompt: 'You are a master synthesizer and data reducer. Given the mapped results from multiple chunks, combine them into a single, coherent, comprehensive output. Resolve any contradictions between chunks, eliminate redundancy, and ensure the final result reads as if it were produced from the original input as a whole.',
+          systemPrompt: `You are a master synthesizer and data reducer. Given the mapped results from multiple chunks, combine them into a single, coherent, comprehensive output. Resolve any contradictions between chunks, eliminate redundancy, and ensure the final result reads as if it were produced from the original input as a whole.
+
+After producing the merged result, also report self-assessment metadata:
+- coverage: fraction of source chunks accounted for (0-1)
+- contradictions: boolean — whether any unresolved contradictions remain
+
+Return JSON: { "output": string, "coverage": float, "contradictions": boolean }`,
+          outputSchema: [
+            { name: 'output', type: 'string', description: 'Merged reduced result' },
+            { name: 'coverage', type: 'number', description: 'Fraction of input chunks represented in the output' },
+            { name: 'contradictions', type: 'boolean', description: 'True if unresolved contradictions remain' },
+          ],
         },
       },
     },
@@ -437,7 +461,11 @@ const MAP_REDUCE: Pipeline = {
       id: 'qualityCheck', type: 'decision', position: { x: 250, y: 960 },
       data: {
         label: 'Completeness Check', description: 'Are all chunks accounted for and consistent?',
-        decisionConfig: { condition: 'coverage >= 0.95 && no_contradictions', trueLabel: 'Complete', falseLabel: 'Gaps Found' },
+        decisionConfig: {
+          condition: '{{reducer.coverage}} >= 0.95 && !{{reducer.contradictions}}',
+          trueLabel: 'Complete',
+          falseLabel: 'Gaps Found',
+        },
       },
     },
     { id: 'output', type: 'output', position: { x: 250, y: 1120 }, data: { label: 'Reduced Output', description: 'Final merged result from all chunks' } },

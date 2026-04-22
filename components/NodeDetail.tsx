@@ -2,9 +2,12 @@
 import { useState, useEffect } from 'react';
 import { X, ChevronDown } from 'lucide-react';
 import { usePipelineStore } from '@/store/pipelineStore';
-import type { NodeData, ModelId, LLMAgentConfig, DecisionConfig, LoopConfig, ParallelConfig, AggregatorConfig, HumanConfig, ToolConfig } from '@/types/pipeline';
+import type { NodeData, ModelId, LLMAgentConfig, DecisionConfig, LoopConfig, ParallelConfig, AggregatorConfig, HumanConfig, ToolConfig, OutputField } from '@/types/pipeline';
 import { MODEL_LABELS } from '@/types/pipeline';
+import { collectUpstreamSchemas } from '@/lib/pipeline';
 import PromptEditor from './PromptEditor';
+import OutputSchemaEditor from './OutputSchemaEditor';
+import ConditionEditor from './ConditionEditor';
 
 const MODELS = Object.entries(MODEL_LABELS) as [ModelId, string][];
 
@@ -25,7 +28,7 @@ const KIND_STYLE: Record<
 };
 
 export default function NodeDetail() {
-  const { nodes, selectedNodeId, selectNode, updateNodeData } = usePipelineStore();
+  const { nodes, edges, selectedNodeId, selectNode, updateNodeData } = usePipelineStore();
   const node = nodes.find((n) => n.id === selectedNodeId);
   const [draft, setDraft] = useState<NodeData | null>(null);
   const [saved, setSaved] = useState(false);
@@ -33,6 +36,11 @@ export default function NodeDetail() {
   useEffect(() => {
     if (node) setDraft(JSON.parse(JSON.stringify(node.data)));
   }, [selectedNodeId]);
+
+  // Upstream variables available to this node's condition editor
+  const upstream = selectedNodeId
+    ? collectUpstreamSchemas(selectedNodeId, nodes, edges)
+    : [];
 
   if (!node || !draft) return null;
 
@@ -162,17 +170,32 @@ export default function NodeDetail() {
                 onChange={(v) => setAgent({ systemPrompt: v })}
               />
             </Field>
+
+            <Field
+              label="Output schema"
+              hint="Fields this agent returns in its JSON output. Downstream decision/loop nodes reference these as {{role.field}}."
+            >
+              <OutputSchemaEditor
+                value={draft.agentConfig.outputSchema ?? []}
+                onChange={(v: OutputField[]) => setAgent({ outputSchema: v })}
+              />
+            </Field>
           </>
         )}
 
         {/* Decision config */}
         {draft.decisionConfig && (
           <>
-            <Field label="Condition">
-              <input
+            <Field
+              label="Condition"
+              hint="Use {{role.field}} to reference an upstream agent's declared output."
+            >
+              <ConditionEditor
                 value={draft.decisionConfig.condition}
-                onChange={(e) => setDecision({ condition: e.target.value })}
-                className="input-airtable font-mono"
+                onChange={(v) => setDecision({ condition: v })}
+                upstream={upstream}
+                accent="#d97706"
+                placeholder="e.g. {{grader.score}} >= 0.8"
               />
             </Field>
             <div className="grid grid-cols-2 gap-3">
@@ -205,11 +228,16 @@ export default function NodeDetail() {
                 className="input-airtable"
               />
             </Field>
-            <Field label="Break condition">
-              <input
+            <Field
+              label="Break condition"
+              hint="Loop exits when this expression is true. Use {{role.field}} to reference upstream agents."
+            >
+              <ConditionEditor
                 value={draft.loopConfig.breakCondition}
-                onChange={(e) => setLoop({ breakCondition: e.target.value })}
-                className="input-airtable font-mono"
+                onChange={(v) => setLoop({ breakCondition: v })}
+                upstream={upstream}
+                accent="#7c3aed"
+                placeholder="e.g. {{critic.score}} >= 0.85"
               />
             </Field>
           </>
@@ -354,12 +382,25 @@ export default function NodeDetail() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
       <label className="block text-[10px] uppercase tracking-caption text-[rgba(4,14,32,0.55)] font-semibold mb-1.5">
         {label}
       </label>
+      {hint && (
+        <p className="text-[11px] text-[rgba(4,14,32,0.55)] tracking-ui leading-snug mb-2">
+          {hint}
+        </p>
+      )}
       {children}
     </div>
   );

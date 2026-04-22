@@ -1,14 +1,32 @@
 'use client';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { NodeData } from '@/types/pipeline';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, AlertTriangle } from 'lucide-react';
+import { useStore as useFlowStore } from 'reactflow';
+import { useMemo } from 'react';
+import { collectUpstreamSchemas, parseVariableRefs } from '@/lib/pipeline';
+import ConditionTokens from './ConditionTokens';
 
-export default function LoopNode({ data, selected }: NodeProps<NodeData>) {
+export default function LoopNode({ id, data, selected }: NodeProps<NodeData>) {
   const cfg = data.loopConfig;
+
+  const nodes = useFlowStore((s) => s.getNodes());
+  const edges = useFlowStore((s) => s.edges);
+  const upstream = useMemo(
+    () => collectUpstreamSchemas(id, nodes, edges),
+    [id, nodes, edges]
+  );
+  const refs = useMemo(
+    () => parseVariableRefs(cfg?.breakCondition ?? ''),
+    [cfg?.breakCondition]
+  );
+  const unresolved = refs.filter(
+    (r) => !upstream.some((u) => u.role === r.role && u.field.name === r.field)
+  );
 
   return (
     <div
-      className={`w-60 rounded-[16px] bg-white overflow-hidden transition-all ${
+      className={`w-64 rounded-[16px] bg-white overflow-hidden transition-all ${
         selected
           ? 'border border-[#7c3aed] shadow-[0_0_0_3px_rgba(124,58,237,0.18),0_1px_3px_rgba(124,58,237,0.20)]'
           : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
@@ -27,6 +45,15 @@ export default function LoopNode({ data, selected }: NodeProps<NodeData>) {
         <span className="text-[13px] font-semibold text-[#181d26] tracking-ui truncate flex-1">
           {data.label}
         </span>
+        {unresolved.length > 0 && (
+          <span
+            className="shrink-0 flex items-center gap-1 rounded-[6px] bg-[#fdf2f4] border border-[#f1b4c0] px-1.5 py-0.5 text-[9px] font-semibold text-[#be123c] tracking-caption"
+            title={`${unresolved.length} unresolved reference${unresolved.length > 1 ? 's' : ''}`}
+          >
+            <AlertTriangle size={9} strokeWidth={2.5} />
+            {unresolved.length}
+          </span>
+        )}
         {cfg && (
           <span className="shrink-0 rounded-[6px] bg-white border border-[#c8b4ec] px-1.5 py-0.5 text-[10px] font-semibold text-[#6d28d9] tracking-caption">
             max {cfg.maxIterations}×
@@ -45,9 +72,11 @@ export default function LoopNode({ data, selected }: NodeProps<NodeData>) {
             <p className="text-[10px] uppercase tracking-caption text-[#6d28d9] font-semibold mb-1">
               Break when
             </p>
-            <code className="text-[11px] text-[#5b21b6] font-mono leading-snug">
-              {cfg.breakCondition}
-            </code>
+            <ConditionTokens
+              expression={cfg.breakCondition}
+              upstream={upstream}
+              accentText="text-[#5b21b6]"
+            />
           </div>
         )}
       </div>
