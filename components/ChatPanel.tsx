@@ -14,7 +14,7 @@ Describe the agent pipeline you want to build — I'll ask a few clarifying ques
 - "Create a code review system with multiple specialized reviewers and a consensus aggregator"
 - "Design an essay writer that generates drafts, critiques them, and refines iteratively"
 
-Or pick a template from the toolbar to get started instantly.`;
+Or pick a template below to get started instantly.`;
 
 export default function ChatPanel() {
   const { messages, phase, isStreaming, addMessage, appendToLastMessage, setPhase, setStreaming, clearMessages, loadPipeline } =
@@ -39,7 +39,6 @@ export default function ChatPanel() {
 
     addMessage({ role: 'assistant', content: '' });
 
-    // After the user's first message in 'gathering' phase, queue design questions
     const showForm = phase === 'initial';
 
     try {
@@ -58,14 +57,12 @@ export default function ChatPanel() {
 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
-      let fullText = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
 
-        // Parse SSE lines
         for (const line of chunk.split('\n')) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
@@ -74,9 +71,7 @@ export default function ChatPanel() {
               const parsed = JSON.parse(data);
               if (parsed.type === 'text') {
                 appendToLastMessage(parsed.text);
-                fullText += parsed.text;
               } else if (parsed.type === 'pipeline') {
-                // Pipeline spec generated
                 loadPipeline(parsed.pipeline);
                 setPhase('ready');
               }
@@ -86,7 +81,6 @@ export default function ChatPanel() {
           }
         }
       }
-      // After the first user message, show design form questions
       if (showForm) {
         addMessage({
           role: 'assistant',
@@ -94,9 +88,8 @@ export default function ChatPanel() {
           formQuestions: PIPELINE_DESIGN_QUESTIONS,
         });
       }
-    } catch (err) {
+    } catch {
       appendToLastMessage('\n\n_Error: Could not connect to API. Make sure ANTHROPIC_API_KEY is set._');
-      // Still show the form for offline / no-API usage
       if (showForm) {
         addMessage({
           role: 'assistant',
@@ -121,46 +114,62 @@ export default function ChatPanel() {
     : messages;
 
   return (
-    <div className="h-full flex flex-col bg-slate-950">
+    <div className="h-full flex flex-col bg-white">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
-        <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
-          <Sparkles size={14} className="text-white" />
+      <div className="flex items-center gap-2.5 px-5 h-14 border-b border-[#e0e2e6]">
+        <div className="w-8 h-8 rounded-[10px] bg-[#1b61c9] flex items-center justify-center shadow-[0_1px_3px_rgba(45,127,249,0.28)]">
+          <Sparkles size={15} className="text-white" strokeWidth={2.2} />
         </div>
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-slate-200">Pipeline Designer</p>
-          <p className="text-[10px] text-slate-500">Powered by Claude</p>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-semibold text-[#181d26] tracking-ui leading-tight">
+            Pipeline Designer
+          </p>
+          <p className="text-[11px] text-[rgba(4,14,32,0.55)] tracking-ui leading-tight">
+            Powered by Claude
+          </p>
         </div>
         {messages.length > 0 && (
-          <button onClick={clearMessages} className="text-slate-600 hover:text-slate-400 transition-colors" title="Clear chat">
-            <Trash2 size={14} />
+          <button
+            onClick={clearMessages}
+            className="w-7 h-7 rounded-[8px] flex items-center justify-center text-[rgba(4,14,32,0.55)] hover:text-[#181d26] hover:bg-[#f1f4f8] transition-colors"
+            title="Clear chat"
+          >
+            <Trash2 size={14} strokeWidth={2} />
           </button>
         )}
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {displayMessages.map((msg) => (
           <div key={msg.id} className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-            <div className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
-              msg.role === 'assistant' ? 'bg-indigo-800' : 'bg-slate-700'
-            }`}>
+            <div
+              className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-0.5 ${
+                msg.role === 'assistant'
+                  ? 'bg-[#eef3fb] border border-[#dbe7f7]'
+                  : 'bg-[#1b61c9]'
+              }`}
+            >
               {msg.role === 'assistant'
-                ? <Bot size={12} className="text-indigo-300" />
-                : <User size={12} className="text-slate-300" />
+                ? <Bot size={13} className="text-[#1b61c9]" strokeWidth={2.2} />
+                : <User size={13} className="text-white" strokeWidth={2.2} />
               }
             </div>
-            <div className={`max-w-[85%] rounded-xl px-3 py-2.5 text-sm leading-relaxed ${
-              msg.role === 'assistant'
-                ? 'bg-slate-900 text-slate-200 border border-slate-800'
-                : 'bg-indigo-600 text-white'
-            }`}>
-              <MarkdownMessage content={msg.content || (isStreaming ? '▋' : '')} />
+            <div
+              className={`max-w-[85%] rounded-[14px] px-3.5 py-2.5 text-[13px] leading-relaxed tracking-ui ${
+                msg.role === 'assistant'
+                  ? 'bg-[#f8fafc] text-[#181d26] border border-[#e0e2e6]'
+                  : 'bg-[#1b61c9] text-white'
+              }`}
+            >
+              <MarkdownMessage
+                content={msg.content || (isStreaming ? '▋' : '')}
+                isUser={msg.role === 'user'}
+              />
               {msg.formQuestions && msg.formQuestions.length > 0 && (
                 <FormQuestionCard
                   questions={msg.formQuestions}
                   onSubmit={(answers) => {
-                    // Format answers as a readable user message
                     const lines = Object.entries(answers)
                       .filter(([, v]) => (Array.isArray(v) ? v.length > 0 : v))
                       .map(([key, val]) => `${key}: ${Array.isArray(val) ? val.join(', ') : val}`);
@@ -178,21 +187,30 @@ export default function ChatPanel() {
 
       {/* Quick templates */}
       {messages.length === 0 && (
-        <div className="px-3 pb-2">
-          <p className="text-[10px] uppercase tracking-wider text-slate-600 font-medium mb-2">Quick templates</p>
-          <div className="space-y-1">
+        <div className="px-4 pb-3">
+          <p className="text-[10px] uppercase tracking-caption text-[rgba(4,14,32,0.55)] font-semibold mb-2 px-1">
+            Quick templates
+          </p>
+          <div className="space-y-1.5">
             {TEMPLATES.slice(0, 3).map((t) => (
               <button
                 key={t.id}
                 onClick={() => {
                   usePipelineStore.getState().loadTemplate(t.id);
                   addMessage({ role: 'user', content: `Load the "${t.name}" template` });
-                  addMessage({ role: 'assistant', content: `Loaded **${t.name}**. ${t.description} Click any node on the canvas to inspect and edit its configuration.` });
+                  addMessage({
+                    role: 'assistant',
+                    content: `Loaded **${t.name}**. ${t.description} Click any node on the canvas to inspect and edit its configuration.`,
+                  });
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 hover:border-indigo-700 hover:bg-indigo-950/30 transition-colors"
+                className="w-full text-left px-3.5 py-2.5 rounded-[12px] bg-white border border-[#e0e2e6] hover:border-[#1b61c9] hover:bg-[#eef3fb] transition-colors group"
               >
-                <p className="text-xs font-medium text-slate-300">{t.name}</p>
-                <p className="text-[10px] text-slate-500 mt-0.5">{t.description}</p>
+                <p className="text-[12px] font-semibold text-[#181d26] tracking-ui group-hover:text-[#1b61c9]">
+                  {t.name}
+                </p>
+                <p className="text-[11px] text-[rgba(4,14,32,0.55)] mt-0.5 leading-relaxed">
+                  {t.description}
+                </p>
               </button>
             ))}
           </div>
@@ -200,7 +218,7 @@ export default function ChatPanel() {
       )}
 
       {/* Input */}
-      <div className="px-3 pb-3 pt-2 border-t border-slate-800">
+      <div className="px-4 pb-4 pt-3 border-t border-[#e0e2e6] bg-white">
         <div className="flex gap-2 items-end">
           <textarea
             ref={inputRef}
@@ -210,43 +228,62 @@ export default function ChatPanel() {
             rows={1}
             placeholder="Describe your pipeline…"
             disabled={isStreaming}
-            className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-indigo-600 resize-none disabled:opacity-50 max-h-32 overflow-y-auto"
+            className="flex-1 bg-[#f8fafc] border border-[#e0e2e6] rounded-[12px] px-3.5 py-2.5 text-[13px] text-[#181d26] placeholder:text-[rgba(4,14,32,0.38)] tracking-ui focus:border-[#1b61c9] focus:bg-white focus:shadow-[0_0_0_3px_rgba(27,97,201,0.12)] transition-all resize-none disabled:opacity-60 max-h-32 overflow-y-auto"
             style={{ minHeight: '42px' }}
           />
           <button
             onClick={send}
             disabled={!input.trim() || isStreaming}
-            className="shrink-0 w-9 h-9 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+            className="shrink-0 w-10 h-10 rounded-[12px] bg-[#1b61c9] hover:bg-[#1755b1] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors shadow-[0_1px_3px_rgba(45,127,249,0.28)]"
           >
-            {isStreaming
-              ? <div className="w-3 h-3 rounded-full border border-white border-t-transparent animate-spin" />
-              : <Send size={14} className="text-white" />
-            }
+            {isStreaming ? (
+              <div className="w-3.5 h-3.5 rounded-full border-[1.5px] border-white border-t-transparent animate-spin" />
+            ) : (
+              <Send size={15} className="text-white" strokeWidth={2.2} />
+            )}
           </button>
         </div>
-        <p className="text-[10px] text-slate-600 mt-1.5 px-1">Enter to send · Shift+Enter for newline</p>
+        <p className="text-[10px] text-[rgba(4,14,32,0.38)] mt-1.5 px-1 tracking-ui">
+          Enter to send · Shift+Enter for newline
+        </p>
       </div>
     </div>
   );
 }
 
-function MarkdownMessage({ content }: { content: string }) {
+function MarkdownMessage({ content, isUser }: { content: string; isUser: boolean }) {
   const lines = content.split('\n');
+  const boldClass = isUser ? 'text-white' : 'text-[#181d26]';
+  const bulletClass = isUser ? 'before:text-white/80' : 'before:text-[#1b61c9]';
+
   return (
     <div className="space-y-1">
       {lines.map((line, i) => {
         if (line.startsWith('**') && line.endsWith('**')) {
-          return <p key={i} className="font-semibold text-slate-100">{line.slice(2, -2)}</p>;
+          return (
+            <p key={i} className={`font-semibold ${boldClass}`}>
+              {line.slice(2, -2)}
+            </p>
+          );
         }
         if (line.startsWith('- ') || line.startsWith('• ')) {
-          return <p key={i} className="pl-3 before:content-['•'] before:mr-1.5 before:text-indigo-400">{line.slice(2)}</p>;
+          return (
+            <p key={i} className={`pl-4 before:content-['•'] before:mr-1.5 before:font-bold ${bulletClass}`}>
+              {line.slice(2)}
+            </p>
+          );
         }
-        // inline bold
         const parts = line.split(/\*\*(.*?)\*\*/g);
         return (
-          <p key={i} className="text-sm leading-relaxed">
+          <p key={i} className="leading-relaxed">
             {parts.map((part, j) =>
-              j % 2 === 1 ? <strong key={j} className="font-semibold text-slate-100">{part}</strong> : part
+              j % 2 === 1 ? (
+                <strong key={j} className={`font-semibold ${boldClass}`}>
+                  {part}
+                </strong>
+              ) : (
+                part
+              )
             )}
           </p>
         );
@@ -255,7 +292,7 @@ function MarkdownMessage({ content }: { content: string }) {
   );
 }
 
-// ── Structured Form Questions ────────────────────────────────────────────────
+/* ── Form questions ──────────────────────────────────────────────────────── */
 
 const PIPELINE_DESIGN_QUESTIONS: FormQuestion[] = [
   {
@@ -332,78 +369,111 @@ function FormQuestionCard({
 
   if (submitted) {
     return (
-      <div className="flex items-center gap-2 py-1.5 text-xs text-green-400">
-        <CheckCircle2 size={13} />
+      <div className="flex items-center gap-2 py-2 text-[12px] text-[#006400] tracking-ui font-medium">
+        <CheckCircle2 size={14} strokeWidth={2.2} />
         <span>Preferences submitted</span>
       </div>
     );
   }
 
   return (
-    <div className="space-y-3 mt-2">
+    <div className="space-y-4 mt-3">
       {questions.map((q) => (
-        <div key={q.id} className="space-y-1.5">
-          <p className="text-[11px] font-medium text-slate-300">{q.label}</p>
+        <div key={q.id} className="space-y-2">
+          <p className="text-[11px] font-semibold text-[#181d26] tracking-ui">{q.label}</p>
 
-          {/* Radio */}
-          {q.type === 'radio' && q.options?.map((opt) => (
-            <label key={opt.value} className="flex items-center gap-2 cursor-pointer group">
-              <input
-                type="radio"
-                name={q.id}
-                value={opt.value}
-                checked={answers[q.id] === opt.value}
-                onChange={() => setAnswer(q.id, opt.value)}
-                className="accent-indigo-500 w-3 h-3"
-              />
-              <span className="text-[11px] text-slate-400 group-hover:text-slate-200 transition-colors">
-                {opt.label}
-              </span>
-            </label>
-          ))}
+          {q.type === 'radio' && (
+            <div className="space-y-1">
+              {q.options?.map((opt) => {
+                const checked = answers[q.id] === opt.value;
+                return (
+                  <label
+                    key={opt.value}
+                    className={`flex items-start gap-2 px-2.5 py-1.5 rounded-[10px] cursor-pointer border transition-colors ${
+                      checked
+                        ? 'bg-[#eef3fb] border-[#1b61c9]'
+                        : 'bg-white border-[#e0e2e6] hover:bg-[#f8fafc] hover:border-[#cbd0d7]'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name={q.id}
+                      value={opt.value}
+                      checked={checked}
+                      onChange={() => setAnswer(q.id, opt.value)}
+                      className="accent-[#1b61c9] w-3.5 h-3.5 mt-0.5 shrink-0"
+                    />
+                    <span
+                      className={`text-[11px] leading-snug tracking-ui ${
+                        checked ? 'text-[#181d26] font-medium' : 'text-[rgba(4,14,32,0.69)]'
+                      }`}
+                    >
+                      {opt.label}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
 
-          {/* Checkbox */}
-          {q.type === 'checkbox' && q.options?.map((opt) => (
-            <label key={opt.value} className="flex items-center gap-2 cursor-pointer group">
-              <input
-                type="checkbox"
-                value={opt.value}
-                checked={((answers[q.id] as string[]) ?? []).includes(opt.value)}
-                onChange={() => toggleCheckbox(q.id, opt.value)}
-                className="accent-indigo-500 w-3 h-3 rounded"
-              />
-              <span className="text-[11px] text-slate-400 group-hover:text-slate-200 transition-colors">
-                {opt.label}
-              </span>
-            </label>
-          ))}
+          {q.type === 'checkbox' && (
+            <div className="space-y-1">
+              {q.options?.map((opt) => {
+                const checked = ((answers[q.id] as string[]) ?? []).includes(opt.value);
+                return (
+                  <label
+                    key={opt.value}
+                    className={`flex items-start gap-2 px-2.5 py-1.5 rounded-[10px] cursor-pointer border transition-colors ${
+                      checked
+                        ? 'bg-[#eef3fb] border-[#1b61c9]'
+                        : 'bg-white border-[#e0e2e6] hover:bg-[#f8fafc] hover:border-[#cbd0d7]'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      value={opt.value}
+                      checked={checked}
+                      onChange={() => toggleCheckbox(q.id, opt.value)}
+                      className="accent-[#1b61c9] w-3.5 h-3.5 mt-0.5 shrink-0 rounded"
+                    />
+                    <span
+                      className={`text-[11px] leading-snug tracking-ui ${
+                        checked ? 'text-[#181d26] font-medium' : 'text-[rgba(4,14,32,0.69)]'
+                      }`}
+                    >
+                      {opt.label}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
 
-          {/* Select */}
           {q.type === 'select' && (
             <select
               value={(answers[q.id] as string) ?? ''}
               onChange={(e) => setAnswer(q.id, e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 outline-none focus:border-indigo-600"
+              className="w-full bg-white border border-[#e0e2e6] rounded-[10px] px-3 py-2 text-[12px] text-[#181d26] tracking-ui focus:border-[#1b61c9] focus:shadow-[0_0_0_3px_rgba(27,97,201,0.12)] transition-all"
             >
               <option value="">Select…</option>
               {q.options?.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
             </select>
           )}
 
-          {/* Text input */}
           {q.type === 'text' && (
             <input
               type="text"
               value={(answers[q.id] as string) ?? ''}
               onChange={(e) => setAnswer(q.id, e.target.value)}
               placeholder={q.placeholder}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 outline-none focus:border-indigo-600"
+              className="w-full bg-white border border-[#e0e2e6] rounded-[10px] px-3 py-2 text-[12px] text-[#181d26] placeholder:text-[rgba(4,14,32,0.38)] tracking-ui focus:border-[#1b61c9] focus:shadow-[0_0_0_3px_rgba(27,97,201,0.12)] transition-all"
             />
           )}
 
-          {/* Number input */}
           {q.type === 'number' && (
             <input
               type="number"
@@ -412,7 +482,7 @@ function FormQuestionCard({
               value={(answers[q.id] as string) ?? ''}
               onChange={(e) => setAnswer(q.id, e.target.value)}
               placeholder={q.placeholder}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 outline-none focus:border-indigo-600"
+              className="w-full bg-white border border-[#e0e2e6] rounded-[10px] px-3 py-2 text-[12px] text-[#181d26] placeholder:text-[rgba(4,14,32,0.38)] tracking-ui focus:border-[#1b61c9] focus:shadow-[0_0_0_3px_rgba(27,97,201,0.12)] transition-all"
             />
           )}
         </div>
@@ -423,7 +493,7 @@ function FormQuestionCard({
           setSubmitted(true);
           onSubmit(answers);
         }}
-        className="w-full py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
+        className="w-full py-2 rounded-[12px] bg-[#1b61c9] hover:bg-[#1755b1] text-white text-[12px] font-semibold tracking-ui transition-colors shadow-[0_1px_3px_rgba(45,127,249,0.28)]"
       >
         Submit preferences
       </button>

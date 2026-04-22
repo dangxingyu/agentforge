@@ -28,12 +28,24 @@ const nodeTypes: NodeTypes = {
   human: HumanNode,
 };
 
+const NODE_COLORS: Record<string, string> = {
+  llm_agent: '#1b61c9',
+  decision: '#d97706',
+  parallel: '#16a34a',
+  aggregator: '#0891b2',
+  loop: '#7c3aed',
+  input: '#64748b',
+  output: '#6d28d9',
+  tool: '#ea580c',
+  human: '#e11d48',
+};
+
 export default function Canvas() {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, selectNode, selectedNodeId } =
     usePipelineStore();
 
   return (
-    <div className="w-full h-full bg-[#080810]">
+    <div className="w-full h-full bg-[#f8fafc]">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -44,42 +56,35 @@ export default function Canvas() {
         onNodeClick={(_, node) => selectNode(node.id === selectedNodeId ? null : node.id)}
         onPaneClick={() => selectNode(null)}
         fitView
-        fitViewOptions={{ padding: 0.15 }}
+        fitViewOptions={{ padding: 0.18 }}
         defaultEdgeOptions={{
-          style: { stroke: '#4f4f7a', strokeWidth: 2 },
-          labelStyle: { fill: '#94a3b8', fontSize: 11 },
-          labelBgStyle: { fill: '#1e1e2d', fillOpacity: 0.9 },
+          style: { stroke: '#94a3b8', strokeWidth: 1.75 },
+          labelStyle: {
+            fill: 'rgba(4,14,32,0.69)',
+            fontSize: 10,
+            fontWeight: 500,
+            letterSpacing: '0.2px',
+          },
+          labelBgStyle: { fill: '#ffffff', fillOpacity: 1, stroke: '#e0e2e6' },
           labelBgPadding: [6, 4],
-          labelBgBorderRadius: 4,
+          labelBgBorderRadius: 6,
         }}
         proOptions={{ hideAttribution: true }}
       >
         <Background
           variant={BackgroundVariant.Dots}
-          gap={24}
+          gap={22}
           size={1}
-          color="#1e1e2d"
+          color="#cfd6df"
         />
-        <Controls
-          className="!bg-slate-900 !border-slate-700 [&>button]:!bg-slate-900 [&>button]:!border-slate-700 [&>button]:!fill-slate-400 [&>button:hover]:!bg-slate-800"
-        />
+        <Controls showInteractive={false} />
         <MiniMap
-          className="!bg-slate-900 !border-slate-700"
-          nodeColor={(node) => {
-            const colors: Record<string, string> = {
-              llm_agent: '#4f46e5',
-              decision: '#d97706',
-              parallel: '#16a34a',
-              aggregator: '#0891b2',
-              loop: '#7c3aed',
-              input: '#475569',
-              output: '#6d28d9',
-              tool: '#c2410c',
-              human: '#be123c',
-            };
-            return colors[node.type ?? ''] ?? '#475569';
-          }}
-          maskColor="rgba(0,0,0,0.7)"
+          nodeColor={(node) => NODE_COLORS[node.type ?? ''] ?? '#64748b'}
+          nodeStrokeColor={(node) => NODE_COLORS[node.type ?? ''] ?? '#64748b'}
+          nodeStrokeWidth={2}
+          maskColor="rgba(15, 48, 106, 0.06)"
+          pannable
+          zoomable
         />
       </ReactFlow>
     </div>

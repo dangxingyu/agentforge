@@ -8,35 +8,55 @@ export default function LoopNode({ data, selected }: NodeProps<NodeData>) {
 
   return (
     <div
-      className={`w-56 rounded-xl border bg-slate-900 shadow-xl transition-all ${
-        selected ? 'border-purple-400 shadow-purple-500/20 shadow-2xl' : 'border-purple-800/60'
+      className={`w-60 rounded-[16px] bg-white overflow-hidden transition-all ${
+        selected
+          ? 'border border-[#7c3aed] shadow-[0_0_0_3px_rgba(124,58,237,0.18),0_1px_3px_rgba(124,58,237,0.20)]'
+          : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
       }`}
     >
-      <Handle type="target" position={Position.Top} className="!bg-purple-700 !border-purple-500 !w-2.5 !h-2.5" />
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!bg-[#7c3aed] !border-white !w-[9px] !h-[9px]"
+      />
 
-      <div className="flex items-center gap-2 rounded-t-xl bg-purple-950/80 px-3 py-2 border-b border-purple-900/60">
-        <RefreshCw size={14} className="text-purple-400 shrink-0" />
-        <span className="text-xs font-semibold text-purple-200 truncate">{data.label}</span>
+      <div className="flex items-center gap-2 px-3.5 py-2.5 bg-[#f0eafb] border-b border-[#c8b4ec]">
+        <div className="w-6 h-6 rounded-[8px] bg-[#7c3aed] flex items-center justify-center shrink-0 shadow-[0_1px_2px_rgba(124,58,237,0.35)]">
+          <RefreshCw size={13} className="text-white" strokeWidth={2.2} />
+        </div>
+        <span className="text-[13px] font-semibold text-[#181d26] tracking-ui truncate flex-1">
+          {data.label}
+        </span>
         {cfg && (
-          <span className="ml-auto shrink-0 rounded bg-purple-800/80 border border-purple-700 px-1.5 py-0.5 text-[10px] font-medium text-purple-300">
+          <span className="shrink-0 rounded-[6px] bg-white border border-[#c8b4ec] px-1.5 py-0.5 text-[10px] font-semibold text-[#6d28d9] tracking-caption">
             max {cfg.maxIterations}×
           </span>
         )}
       </div>
 
-      <div className="px-3 py-2.5 space-y-1.5">
+      <div className="px-3.5 py-3 space-y-2">
         {data.description && (
-          <p className="text-[11px] text-slate-400">{data.description}</p>
+          <p className="text-[12px] text-[rgba(4,14,32,0.69)] leading-relaxed tracking-ui">
+            {data.description}
+          </p>
         )}
         {cfg && (
-          <div className="rounded-lg bg-purple-950/40 border border-purple-900/40 px-2.5 py-1.5">
-            <p className="text-[10px] uppercase tracking-wider text-purple-600 font-medium mb-0.5">Break when</p>
-            <code className="text-[11px] text-purple-300 font-mono">{cfg.breakCondition}</code>
+          <div className="rounded-[10px] bg-[#f6f1fc] border border-[#c8b4ec] px-2.5 py-2">
+            <p className="text-[10px] uppercase tracking-caption text-[#6d28d9] font-semibold mb-1">
+              Break when
+            </p>
+            <code className="text-[11px] text-[#5b21b6] font-mono leading-snug">
+              {cfg.breakCondition}
+            </code>
           </div>
         )}
       </div>
 
-      <Handle type="source" position={Position.Bottom} className="!bg-purple-700 !border-purple-500 !w-2.5 !h-2.5" />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!bg-[#7c3aed] !border-white !w-[9px] !h-[9px]"
+      />
     </div>
   );
 }

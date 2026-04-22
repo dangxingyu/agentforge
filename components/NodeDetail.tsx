@@ -8,6 +8,22 @@ import PromptEditor from './PromptEditor';
 
 const MODELS = Object.entries(MODEL_LABELS) as [ModelId, string][];
 
+// Kind → tint + border + text (light theme)
+const KIND_STYLE: Record<
+  string,
+  { bg: string; border: string; text: string; dot: string }
+> = {
+  llm_agent: { bg: '#eef3fb', border: '#bcd0ee', text: '#1b61c9', dot: '#1b61c9' },
+  decision:  { bg: '#fef4e6', border: '#f5d7a0', text: '#b45309', dot: '#d97706' },
+  parallel:  { bg: '#e7f6ee', border: '#a8d9bd', text: '#15803d', dot: '#16a34a' },
+  aggregator:{ bg: '#e3f4f7', border: '#a3d1dc', text: '#0e7490', dot: '#0891b2' },
+  loop:      { bg: '#f0eafb', border: '#c8b4ec', text: '#6d28d9', dot: '#7c3aed' },
+  human:     { bg: '#fbe7ec', border: '#f1b4c0', text: '#be123c', dot: '#e11d48' },
+  tool:      { bg: '#fdebdd', border: '#f1bd92', text: '#c2410c', dot: '#ea580c' },
+  input:     { bg: '#f1f4f8', border: '#d1d5db', text: '#475569', dot: '#64748b' },
+  output:    { bg: '#ece6f8', border: '#c5b4e8', text: '#6d28d9', dot: '#7c3aed' },
+};
+
 export default function NodeDetail() {
   const { nodes, selectedNodeId, selectNode, updateNodeData } = usePipelineStore();
   const node = nodes.find((n) => n.id === selectedNodeId);
@@ -49,128 +65,131 @@ export default function NodeDetail() {
     setDraft((d) => d ? { ...d, toolConfig: { ...d.toolConfig!, ...patch } } : d);
   }
 
-  const kindColors: Record<string, string> = {
-    llm_agent: 'text-indigo-400 bg-indigo-950/50 border-indigo-800',
-    decision: 'text-amber-400 bg-amber-950/50 border-amber-800',
-    parallel: 'text-green-400 bg-green-950/50 border-green-800',
-    aggregator: 'text-cyan-400 bg-cyan-950/50 border-cyan-800',
-    loop: 'text-purple-400 bg-purple-950/50 border-purple-800',
-    human: 'text-rose-400 bg-rose-950/50 border-rose-800',
-    tool: 'text-orange-400 bg-orange-950/50 border-orange-800',
-    input: 'text-slate-400 bg-slate-800/50 border-slate-700',
-    output: 'text-violet-400 bg-violet-950/50 border-violet-800',
-  };
-  const badgeClass = kindColors[node.type ?? 'llm_agent'] ?? kindColors.llm_agent;
+  const style = KIND_STYLE[node.type ?? 'llm_agent'] ?? KIND_STYLE.llm_agent;
 
   return (
-    <div className="h-full flex flex-col bg-slate-950 overflow-hidden">
+    <div className="h-full flex flex-col bg-white overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
+      <div className="flex items-start gap-3 px-5 py-4 border-b border-[#e0e2e6]">
+        <div
+          className="w-1 h-11 rounded-full shrink-0 mt-0.5"
+          style={{ backgroundColor: style.dot }}
+        />
         <div className="flex-1 min-w-0">
           <input
             value={draft.label}
             onChange={(e) => setDraft((d) => d ? { ...d, label: e.target.value } : d)}
-            className="w-full bg-transparent text-sm font-semibold text-slate-100 outline-none placeholder:text-slate-600"
+            className="w-full bg-transparent text-[16px] font-semibold text-[#181d26] tracking-display outline-none placeholder:text-[rgba(4,14,32,0.38)]"
             placeholder="Node label"
           />
-          <span className={`inline-flex mt-0.5 items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium border ${badgeClass}`}>
+          <span
+            className="inline-flex mt-1 items-center rounded-[6px] px-1.5 py-0.5 text-[10px] font-mono font-semibold tracking-caption border"
+            style={{
+              backgroundColor: style.bg,
+              borderColor: style.border,
+              color: style.text,
+            }}
+          >
             {node.type}
           </span>
         </div>
-        <button onClick={() => selectNode(null)} className="text-slate-500 hover:text-slate-300 transition-colors">
-          <X size={16} />
+        <button
+          onClick={() => selectNode(null)}
+          className="w-8 h-8 rounded-[10px] flex items-center justify-center text-[rgba(4,14,32,0.55)] hover:text-[#181d26] hover:bg-[#f1f4f8] transition-colors"
+        >
+          <X size={16} strokeWidth={2} />
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
         {/* Description */}
-        <div>
-          <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-medium mb-1">Description</label>
+        <Field label="Description">
           <textarea
             value={draft.description ?? ''}
             onChange={(e) => setDraft((d) => d ? { ...d, description: e.target.value } : d)}
             rows={2}
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-indigo-600 resize-none"
+            className="input-airtable resize-none"
             placeholder="What does this node do?"
           />
-        </div>
+        </Field>
 
         {/* LLM Agent config */}
         {draft.agentConfig && (
           <>
-            <Section title="Role">
+            <Field label="Role">
               <input
                 value={draft.agentConfig.role}
                 onChange={(e) => setAgent({ role: e.target.value })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-indigo-600 font-mono"
+                className="input-airtable font-mono"
                 placeholder="role_name"
               />
-            </Section>
+            </Field>
 
-            <Section title="Model">
-              <div className="relative">
-                <select
-                  value={draft.agentConfig.model}
-                  onChange={(e) => setAgent({ model: e.target.value as ModelId })}
-                  className="w-full appearance-none bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-indigo-600 pr-8"
-                >
-                  {MODELS.map(([id, label]) => (
-                    <option key={id} value={id}>{label}</option>
-                  ))}
-                </select>
-                <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-              </div>
-            </Section>
+            <Field label="Model">
+              <Select
+                value={draft.agentConfig.model}
+                onChange={(v) => setAgent({ model: v as ModelId })}
+                options={MODELS.map(([id, label]) => ({ value: id, label }))}
+              />
+            </Field>
 
-            <Section title="Temperature">
+            <Field label="Temperature">
               <div className="flex items-center gap-3">
                 <input
                   type="range" min={0} max={1} step={0.05}
                   value={draft.agentConfig.temperature}
                   onChange={(e) => setAgent({ temperature: parseFloat(e.target.value) })}
-                  className="flex-1 accent-indigo-500"
+                  className="flex-1 accent-[#1b61c9]"
                 />
-                <span className="text-sm text-slate-300 font-mono w-8 text-right">{draft.agentConfig.temperature}</span>
+                <span className="text-[13px] text-[#181d26] font-mono font-semibold w-10 text-right tabular-nums">
+                  {draft.agentConfig.temperature.toFixed(2)}
+                </span>
               </div>
-            </Section>
+            </Field>
 
-            <Section title="Max Tokens">
+            <Field label="Max tokens">
               <input
                 type="number" min={64} max={32768} step={64}
                 value={draft.agentConfig.maxTokens}
                 onChange={(e) => setAgent({ maxTokens: parseInt(e.target.value) })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-indigo-600"
+                className="input-airtable"
               />
-            </Section>
+            </Field>
 
-            <Section title="System Prompt">
+            <Field label="System prompt">
               <PromptEditor
                 value={draft.agentConfig.systemPrompt}
                 onChange={(v) => setAgent({ systemPrompt: v })}
               />
-            </Section>
+            </Field>
           </>
         )}
 
         {/* Decision config */}
         {draft.decisionConfig && (
           <>
-            <Section title="Condition">
+            <Field label="Condition">
               <input
                 value={draft.decisionConfig.condition}
                 onChange={(e) => setDecision({ condition: e.target.value })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-amber-600 font-mono"
+                className="input-airtable font-mono"
               />
-            </Section>
-            <div className="grid grid-cols-2 gap-2">
-              <Section title="True label">
-                <input value={draft.decisionConfig.trueLabel} onChange={(e) => setDecision({ trueLabel: e.target.value })}
-                  className="w-full bg-slate-900 border border-green-900/60 rounded-lg px-3 py-2 text-sm text-green-300 outline-none focus:border-green-600" />
-              </Section>
-              <Section title="False label">
-                <input value={draft.decisionConfig.falseLabel} onChange={(e) => setDecision({ falseLabel: e.target.value })}
-                  className="w-full bg-slate-900 border border-red-900/60 rounded-lg px-3 py-2 text-sm text-red-300 outline-none focus:border-red-600" />
-              </Section>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="True label">
+                <input
+                  value={draft.decisionConfig.trueLabel}
+                  onChange={(e) => setDecision({ trueLabel: e.target.value })}
+                  className="input-airtable !border-[#a8d9bd] !bg-[#e7f6ee] !text-[#15803d] focus:!border-[#15803d]"
+                />
+              </Field>
+              <Field label="False label">
+                <input
+                  value={draft.decisionConfig.falseLabel}
+                  onChange={(e) => setDecision({ falseLabel: e.target.value })}
+                  className="input-airtable !border-[#f1b4c0] !bg-[#fbe7ec] !text-[#be123c] focus:!border-[#be123c]"
+                />
+              </Field>
             </div>
           </>
         )}
@@ -178,113 +197,201 @@ export default function NodeDetail() {
         {/* Loop config */}
         {draft.loopConfig && (
           <>
-            <Section title="Max Iterations">
-              <input type="number" min={1} max={100}
+            <Field label="Max iterations">
+              <input
+                type="number" min={1} max={100}
                 value={draft.loopConfig.maxIterations}
                 onChange={(e) => setLoop({ maxIterations: parseInt(e.target.value) })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-purple-600" />
-            </Section>
-            <Section title="Break Condition">
-              <input value={draft.loopConfig.breakCondition} onChange={(e) => setLoop({ breakCondition: e.target.value })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-purple-600 font-mono" />
-            </Section>
+                className="input-airtable"
+              />
+            </Field>
+            <Field label="Break condition">
+              <input
+                value={draft.loopConfig.breakCondition}
+                onChange={(e) => setLoop({ breakCondition: e.target.value })}
+                className="input-airtable font-mono"
+              />
+            </Field>
           </>
         )}
 
         {/* Parallel config */}
         {draft.parallelConfig && (
           <>
-            <Section title="Parallel Count">
-              <input type="number" min={2} max={32}
+            <Field label="Parallel count">
+              <input
+                type="number" min={2} max={32}
                 value={draft.parallelConfig.numParallel}
                 onChange={(e) => setParallel({ numParallel: parseInt(e.target.value) })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-green-600" />
-            </Section>
-            <Section title="Label">
-              <input value={draft.parallelConfig.label ?? ''} onChange={(e) => setParallel({ label: e.target.value })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-green-600" />
-            </Section>
+                className="input-airtable"
+              />
+            </Field>
+            <Field label="Label">
+              <input
+                value={draft.parallelConfig.label ?? ''}
+                onChange={(e) => setParallel({ label: e.target.value })}
+                className="input-airtable"
+              />
+            </Field>
           </>
         )}
 
         {/* Aggregator config */}
         {draft.aggregatorConfig && (
           <>
-            <Section title="Strategy">
-              <div className="relative">
-                <select value={draft.aggregatorConfig.strategy} onChange={(e) => setAggregator({ strategy: e.target.value as AggregatorConfig['strategy'] })}
-                  className="w-full appearance-none bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-cyan-600 pr-8">
-                  {(['all', 'best', 'vote', 'first', 'concat'] as const).map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-                <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-              </div>
-            </Section>
-            <Section title="Selection Criteria">
-              <input value={draft.aggregatorConfig.selectionCriteria ?? ''} onChange={(e) => setAggregator({ selectionCriteria: e.target.value })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-cyan-600" placeholder="e.g. highest score" />
-            </Section>
+            <Field label="Strategy">
+              <Select
+                value={draft.aggregatorConfig.strategy}
+                onChange={(v) => setAggregator({ strategy: v as AggregatorConfig['strategy'] })}
+                options={(['all', 'best', 'vote', 'first', 'concat'] as const).map((s) => ({ value: s, label: s }))}
+              />
+            </Field>
+            <Field label="Selection criteria">
+              <input
+                value={draft.aggregatorConfig.selectionCriteria ?? ''}
+                onChange={(e) => setAggregator({ selectionCriteria: e.target.value })}
+                className="input-airtable"
+                placeholder="e.g. highest score"
+              />
+            </Field>
           </>
         )}
 
         {/* Human config */}
         {draft.humanConfig && (
           <>
-            <Section title="Prompt">
-              <textarea value={draft.humanConfig.prompt} onChange={(e) => setHuman({ prompt: e.target.value })} rows={3}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-rose-600 resize-none" />
-            </Section>
-            <div className="flex items-center gap-2">
-              <input type="checkbox" id="approval" checked={draft.humanConfig.approvalRequired}
+            <Field label="Prompt">
+              <textarea
+                value={draft.humanConfig.prompt}
+                onChange={(e) => setHuman({ prompt: e.target.value })}
+                rows={3}
+                className="input-airtable resize-none"
+              />
+            </Field>
+            <label className="flex items-center gap-2.5 cursor-pointer px-3 py-2.5 rounded-[10px] bg-[#f8fafc] border border-[#e0e2e6] hover:border-[#cbd0d7] transition-colors">
+              <input
+                type="checkbox"
+                checked={draft.humanConfig.approvalRequired}
                 onChange={(e) => setHuman({ approvalRequired: e.target.checked })}
-                className="accent-rose-500 w-4 h-4" />
-              <label htmlFor="approval" className="text-sm text-slate-300">Requires approval</label>
-            </div>
+                className="accent-[#1b61c9] w-4 h-4"
+              />
+              <span className="text-[12px] text-[#181d26] tracking-ui font-medium">
+                Requires approval
+              </span>
+            </label>
           </>
         )}
 
         {/* Tool config */}
         {draft.toolConfig && (
           <>
-            <Section title="Tool Name">
-              <input value={draft.toolConfig.toolName} onChange={(e) => setTool({ toolName: e.target.value })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-orange-600 font-mono" />
-            </Section>
-            <Section title="Description">
-              <input value={draft.toolConfig.description} onChange={(e) => setTool({ description: e.target.value })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-orange-600" />
-            </Section>
-            <Section title="API Endpoint">
-              <input value={draft.toolConfig.apiEndpoint ?? ''} onChange={(e) => setTool({ apiEndpoint: e.target.value })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300 outline-none focus:border-orange-600 font-mono" placeholder="https://..." />
-            </Section>
+            <Field label="Tool name">
+              <input
+                value={draft.toolConfig.toolName}
+                onChange={(e) => setTool({ toolName: e.target.value })}
+                className="input-airtable font-mono"
+              />
+            </Field>
+            <Field label="Description">
+              <input
+                value={draft.toolConfig.description}
+                onChange={(e) => setTool({ description: e.target.value })}
+                className="input-airtable"
+              />
+            </Field>
+            <Field label="API endpoint">
+              <input
+                value={draft.toolConfig.apiEndpoint ?? ''}
+                onChange={(e) => setTool({ apiEndpoint: e.target.value })}
+                className="input-airtable font-mono"
+                placeholder="https://..."
+              />
+            </Field>
           </>
         )}
       </div>
 
       {/* Save */}
-      <div className="px-4 py-3 border-t border-slate-800">
+      <div className="px-5 py-4 border-t border-[#e0e2e6] bg-white">
         <button
           onClick={save}
-          className={`w-full py-2 rounded-lg text-sm font-medium transition-all ${
+          className={`w-full h-10 rounded-[12px] text-[13px] font-semibold tracking-ui transition-all ${
             saved
-              ? 'bg-green-700 text-green-100'
-              : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+              ? 'bg-[#006400] text-white shadow-[0_1px_3px_rgba(0,100,0,0.28)]'
+              : 'bg-[#1b61c9] hover:bg-[#1755b1] text-white shadow-[0_1px_3px_rgba(45,127,249,0.28)]'
           }`}
         >
-          {saved ? 'Saved!' : 'Save Changes'}
+          {saved ? '✓ Saved' : 'Save changes'}
         </button>
       </div>
+
+      {/* Shared input styles */}
+      <style jsx>{`
+        :global(.input-airtable) {
+          width: 100%;
+          background: #ffffff;
+          border: 1px solid #e0e2e6;
+          border-radius: 10px;
+          padding: 8px 12px;
+          font-size: 13px;
+          color: #181d26;
+          letter-spacing: 0.08px;
+          transition: border-color 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+        }
+        :global(.input-airtable::placeholder) {
+          color: rgba(4, 14, 32, 0.38);
+        }
+        :global(.input-airtable:hover) {
+          border-color: #cbd0d7;
+        }
+        :global(.input-airtable:focus) {
+          border-color: #1b61c9;
+          box-shadow: 0 0 0 3px rgba(27, 97, 201, 0.12);
+          outline: none;
+        }
+      `}</style>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-medium mb-1.5">{title}</label>
+      <label className="block text-[10px] uppercase tracking-caption text-[rgba(4,14,32,0.55)] font-semibold mb-1.5">
+        {label}
+      </label>
       {children}
+    </div>
+  );
+}
+
+function Select({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="input-airtable appearance-none pr-8 cursor-pointer"
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown
+        size={14}
+        strokeWidth={2}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-[rgba(4,14,32,0.55)] pointer-events-none"
+      />
     </div>
   );
 }

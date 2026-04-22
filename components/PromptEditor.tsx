@@ -13,7 +13,7 @@ export default function PromptEditor({ value, onChange }: Props) {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 320) + 'px';
+    el.style.height = Math.min(el.scrollHeight, 360) + 'px';
   }, []);
 
   useEffect(() => {
@@ -21,17 +21,24 @@ export default function PromptEditor({ value, onChange }: Props) {
   }, [value, resize]);
 
   return (
-    <div className="relative rounded-lg overflow-hidden border border-slate-700 focus-within:border-indigo-600 transition-colors">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-slate-800/80 border-b border-slate-700">
-        <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">System Prompt</span>
-        <span className="text-[10px] text-slate-600">{value.length} chars</span>
+    <div className="relative rounded-[12px] overflow-hidden border border-[#e0e2e6] bg-white focus-within:border-[#1b61c9] focus-within:shadow-[0_0_0_3px_rgba(27,97,201,0.12)] transition-all">
+      <div className="flex items-center justify-between px-3 py-2 bg-[#f8fafc] border-b border-[#e0e2e6]">
+        <span className="text-[10px] uppercase tracking-caption text-[rgba(4,14,32,0.55)] font-semibold">
+          System prompt
+        </span>
+        <span className="text-[10px] text-[rgba(4,14,32,0.55)] tracking-caption font-medium tabular-nums">
+          {value.length.toLocaleString()} chars
+        </span>
       </div>
       <textarea
         ref={textareaRef}
         value={value}
-        onChange={(e) => { onChange(e.target.value); resize(); }}
+        onChange={(e) => {
+          onChange(e.target.value);
+          resize();
+        }}
         onInput={resize}
-        className="w-full min-h-[120px] bg-slate-900 px-3 py-2.5 text-[12px] text-slate-300 font-mono leading-relaxed outline-none resize-none"
+        className="w-full min-h-[140px] bg-white px-3.5 py-3 text-[12px] text-[#181d26] font-mono leading-relaxed outline-none resize-none placeholder:text-[rgba(4,14,32,0.38)]"
         placeholder="You are a helpful assistant..."
         spellCheck={false}
       />

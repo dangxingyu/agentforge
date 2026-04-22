@@ -16,35 +16,55 @@ export default function AggregatorNode({ data, selected }: NodeProps<NodeData>) 
 
   return (
     <div
-      className={`w-56 rounded-xl border bg-slate-900 shadow-xl transition-all ${
-        selected ? 'border-cyan-400 shadow-cyan-500/20 shadow-2xl' : 'border-cyan-800/60'
+      className={`w-60 rounded-[16px] bg-white overflow-hidden transition-all ${
+        selected
+          ? 'border border-[#0891b2] shadow-[0_0_0_3px_rgba(8,145,178,0.18),0_1px_3px_rgba(8,145,178,0.20)]'
+          : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
       }`}
     >
-      <Handle type="target" position={Position.Top} className="!bg-cyan-700 !border-cyan-500 !w-2.5 !h-2.5" />
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!bg-[#0891b2] !border-white !w-[9px] !h-[9px]"
+      />
 
-      <div className="flex items-center gap-2 rounded-t-xl bg-cyan-950/80 px-3 py-2 border-b border-cyan-900/60">
-        <Merge size={14} className="text-cyan-400 shrink-0" />
-        <span className="text-xs font-semibold text-cyan-200 truncate">{data.label}</span>
+      <div className="flex items-center gap-2 px-3.5 py-2.5 bg-[#e3f4f7] border-b border-[#a3d1dc]">
+        <div className="w-6 h-6 rounded-[8px] bg-[#0891b2] flex items-center justify-center shrink-0 shadow-[0_1px_2px_rgba(8,145,178,0.35)]">
+          <Merge size={13} className="text-white" strokeWidth={2.2} />
+        </div>
+        <span className="text-[13px] font-semibold text-[#181d26] tracking-ui truncate">
+          {data.label}
+        </span>
       </div>
 
-      <div className="px-3 py-2.5 space-y-1.5">
+      <div className="px-3.5 py-3 space-y-2">
         {data.description && (
-          <p className="text-[11px] text-slate-400">{data.description}</p>
+          <p className="text-[12px] text-[rgba(4,14,32,0.69)] leading-relaxed tracking-ui">
+            {data.description}
+          </p>
         )}
         {cfg && (
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wider text-cyan-600 font-medium">Strategy</span>
-            <span className="rounded bg-cyan-900/50 border border-cyan-800/50 px-1.5 py-0.5 text-[10px] text-cyan-300">
+            <span className="text-[10px] uppercase tracking-caption text-[rgba(4,14,32,0.55)] font-semibold">
+              Strategy
+            </span>
+            <span className="rounded-[6px] bg-[#e3f4f7] border border-[#a3d1dc] px-2 py-0.5 text-[11px] text-[#0e7490] font-semibold tracking-ui">
               {STRATEGY_LABEL[cfg.strategy] ?? cfg.strategy}
             </span>
           </div>
         )}
         {cfg?.selectionCriteria && (
-          <p className="text-[10px] text-slate-500 font-mono">{cfg.selectionCriteria}</p>
+          <p className="text-[10px] text-[rgba(4,14,32,0.55)] font-mono leading-relaxed border-t border-[#e0e2e6] pt-2">
+            {cfg.selectionCriteria}
+          </p>
         )}
       </div>
 
-      <Handle type="source" position={Position.Bottom} className="!bg-cyan-700 !border-cyan-500 !w-2.5 !h-2.5" />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!bg-[#0891b2] !border-white !w-[9px] !h-[9px]"
+      />
     </div>
   );
 }

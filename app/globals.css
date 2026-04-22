@@ -1,32 +1,195 @@
 @import "tailwindcss";
 @import "reactflow/dist/style.css";
 
+/* ─── Design tokens (Airtable-inspired) ────────────────────────────────────── */
+@theme {
+  /* Ink (text) */
+  --color-ink: #181d26;
+  --color-ink-soft: #333333;
+  --color-ink-weak: rgba(4, 14, 32, 0.69);
+  --color-ink-muted: rgba(4, 14, 32, 0.55);
+  --color-ink-faint: rgba(4, 14, 32, 0.38);
+
+  /* Brand */
+  --color-brand: #1b61c9;
+  --color-brand-hover: #1755b1;
+  --color-brand-mid: #254fad;
+  --color-brand-tint: #eef3fb;
+  --color-brand-tint-strong: #dbe7f7;
+
+  /* Surface */
+  --color-surface: #ffffff;
+  --color-surface-soft: #f8fafc;
+  --color-surface-sunken: #f1f4f8;
+  --color-border: #e0e2e6;
+  --color-border-strong: #cbd0d7;
+
+  /* Semantic */
+  --color-success: #006400;
+
+  /* Shadows (blue-tinted multi-layer) */
+  --shadow-elev-1:
+    0 0 1px rgba(0, 0, 0, 0.32),
+    0 0 2px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(45, 127, 249, 0.28),
+    inset 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  --shadow-soft: 0 0 20px rgba(15, 48, 106, 0.05);
+  --shadow-card: 0 1px 2px rgba(15, 48, 106, 0.04), 0 4px 14px rgba(15, 48, 106, 0.06);
+  --shadow-pop:
+    0 0 0 1px rgba(15, 48, 106, 0.06),
+    0 8px 24px rgba(15, 48, 106, 0.10),
+    0 2px 6px rgba(15, 48, 106, 0.06);
+
+  /* Radii */
+  --radius-xs: 2px;
+  --radius-btn: 12px;
+  --radius-card: 16px;
+  --radius-section: 24px;
+
+  /* Typography */
+  --font-sans: 'Haas', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: 'Haas Groot Disp', var(--font-sans);
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+}
+
 :root {
-  --background: #080810;
-  --foreground: #e2e8f0;
+  color-scheme: light;
+}
+
+html,
+body {
+  background: var(--color-surface);
+  color: var(--color-ink);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  letter-spacing: 0.08px; /* positive tracking per Airtable system */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-/* React Flow overrides */
+/* Slightly denser tracking for small UI text, looser for display */
+.tracking-ui { letter-spacing: 0.1px; }
+.tracking-caption { letter-spacing: 0.22px; }
+.tracking-display { letter-spacing: -0.1px; }
+
+/* ─── React Flow overrides ────────────────────────────────────────────────── */
+.react-flow {
+  background: var(--color-surface-soft);
+}
+
 .react-flow__edge-path {
-  stroke-width: 2;
+  stroke: #94a3b8;
+  stroke-width: 1.75;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus .react-flow__edge-path {
+  stroke: var(--color-brand);
+}
+
+.react-flow__edge-text {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  fill: var(--color-ink-weak);
+}
+
+.react-flow__edge-textbg {
+  fill: #ffffff;
+  stroke: var(--color-border);
+  stroke-width: 1;
 }
 
 .react-flow__handle {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid #ffffff;
   transition: transform 0.15s ease;
+  box-shadow: 0 0 0 1px rgba(15, 48, 106, 0.10);
 }
 
 .react-flow__handle:hover {
-  transform: scale(1.3);
+  transform: scale(1.35);
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+.react-flow__controls {
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.react-flow__controls-button {
+  background: #ffffff;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-ink-weak);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--color-brand-tint);
+  color: var(--color-brand);
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.react-flow__minimap {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: #ffffff !important;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.react-flow__attribution { display: none; }
+
+/* ─── Scrollbar (light theme) ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2d2d4a; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #3d3d5a; }
+::-webkit-scrollbar-thumb {
+  background: rgba(4, 14, 32, 0.14);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(4, 14, 32, 0.28);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* ─── Selection ───────────────────────────────────────────────────────────── */
+::selection {
+  background: var(--color-brand-tint-strong);
+  color: var(--color-ink);
+}
+
+/* ─── Focus ring ──────────────────────────────────────────────────────────── */
+.focus-ring:focus-visible,
+*:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+}
+
+/* ─── Utility: blue-tinted elevated shadow ───────────────────────────────── */
+.shadow-elev { box-shadow: var(--shadow-elev-1); }
+.shadow-soft-ambient { box-shadow: var(--shadow-soft); }
+.shadow-card-airtable { box-shadow: var(--shadow-card); }
+.shadow-pop-airtable { box-shadow: var(--shadow-pop); }

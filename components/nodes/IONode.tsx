@@ -5,36 +5,72 @@ import { ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 
 export default function IONode({ data, selected, type }: NodeProps<NodeData>) {
   const isInput = type === 'input';
-  const colorClass = isInput
-    ? selected ? 'border-slate-400 shadow-slate-400/20 shadow-2xl' : 'border-slate-600'
-    : selected ? 'border-violet-400 shadow-violet-400/20 shadow-2xl' : 'border-violet-700/60';
-  const headerClass = isInput ? 'bg-slate-800/80 border-slate-700' : 'bg-violet-950/80 border-violet-900/60';
-  const iconClass = isInput ? 'text-slate-400' : 'text-violet-400';
-  const textClass = isInput ? 'text-slate-200' : 'text-violet-200';
+  const accent = isInput ? '#64748b' : '#6d28d9';
+  const bg = isInput ? '#f1f4f8' : '#ece6f8';
+  const border = isInput ? '#d1d5db' : '#c5b4e8';
+  const shadowRgb = isInput ? '100, 116, 139' : '109, 40, 217';
 
   return (
-    <div className={`w-48 rounded-xl border bg-slate-900 shadow-xl transition-all ${colorClass}`}>
+    <div
+      className={`w-52 rounded-[16px] bg-white overflow-hidden transition-all ${
+        selected
+          ? `border shadow-[0_0_0_3px_rgba(${shadowRgb},0.18),0_1px_3px_rgba(${shadowRgb},0.20)]`
+          : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
+      }`}
+      style={selected ? { borderColor: accent } : undefined}
+    >
       {!isInput && (
-        <Handle type="target" position={Position.Top} className="!bg-violet-700 !border-violet-500 !w-2.5 !h-2.5" />
+        <Handle
+          type="target"
+          position={Position.Top}
+          className="!border-white !w-[9px] !h-[9px]"
+          style={{ background: accent }}
+        />
       )}
 
-      <div className={`flex items-center gap-2 rounded-t-xl px-3 py-2 border-b ${headerClass}`}>
-        {isInput ? (
-          <ArrowDownCircle size={14} className={iconClass} />
-        ) : (
-          <ArrowUpCircle size={14} className={iconClass} />
-        )}
-        <span className={`text-xs font-semibold truncate ${textClass}`}>{data.label}</span>
+      <div
+        className="flex items-center gap-2 px-3.5 py-2.5 border-b"
+        style={{ backgroundColor: bg, borderBottomColor: border }}
+      >
+        <div
+          className="w-6 h-6 rounded-[8px] flex items-center justify-center shrink-0"
+          style={{
+            backgroundColor: accent,
+            boxShadow: `0 1px 2px rgba(${shadowRgb}, 0.35)`,
+          }}
+        >
+          {isInput ? (
+            <ArrowDownCircle size={13} className="text-white" strokeWidth={2.2} />
+          ) : (
+            <ArrowUpCircle size={13} className="text-white" strokeWidth={2.2} />
+          )}
+        </div>
+        <span className="text-[13px] font-semibold text-[#181d26] tracking-ui truncate">
+          {data.label}
+        </span>
+        <span
+          className="ml-auto text-[9px] uppercase tracking-caption font-bold"
+          style={{ color: accent }}
+        >
+          {isInput ? 'IN' : 'OUT'}
+        </span>
       </div>
 
       {data.description && (
-        <div className="px-3 py-2">
-          <p className="text-[11px] text-slate-400">{data.description}</p>
+        <div className="px-3.5 py-2.5">
+          <p className="text-[12px] text-[rgba(4,14,32,0.69)] leading-relaxed tracking-ui">
+            {data.description}
+          </p>
         </div>
       )}
 
       {isInput && (
-        <Handle type="source" position={Position.Bottom} className="!bg-slate-500 !border-slate-400 !w-2.5 !h-2.5" />
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          className="!border-white !w-[9px] !h-[9px]"
+          style={{ background: accent }}
+        />
       )}
     </div>
   );

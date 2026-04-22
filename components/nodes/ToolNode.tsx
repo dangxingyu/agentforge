@@ -8,34 +8,52 @@ export default function ToolNode({ data, selected }: NodeProps<NodeData>) {
 
   return (
     <div
-      className={`w-56 rounded-xl border bg-slate-900 shadow-xl transition-all ${
-        selected ? 'border-orange-400 shadow-orange-500/20 shadow-2xl' : 'border-orange-800/60'
+      className={`w-60 rounded-[16px] bg-white overflow-hidden transition-all ${
+        selected
+          ? 'border border-[#ea580c] shadow-[0_0_0_3px_rgba(234,88,12,0.18),0_1px_3px_rgba(234,88,12,0.20)]'
+          : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
       }`}
     >
-      <Handle type="target" position={Position.Top} className="!bg-orange-700 !border-orange-500 !w-2.5 !h-2.5" />
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!bg-[#ea580c] !border-white !w-[9px] !h-[9px]"
+      />
 
-      <div className="flex items-center gap-2 rounded-t-xl bg-orange-950/80 px-3 py-2 border-b border-orange-900/60">
-        <Wrench size={14} className="text-orange-400 shrink-0" />
-        <span className="text-xs font-semibold text-orange-200 truncate">{data.label}</span>
+      <div className="flex items-center gap-2 px-3.5 py-2.5 bg-[#fdebdd] border-b border-[#f1bd92]">
+        <div className="w-6 h-6 rounded-[8px] bg-[#ea580c] flex items-center justify-center shrink-0 shadow-[0_1px_2px_rgba(234,88,12,0.35)]">
+          <Wrench size={13} className="text-white" strokeWidth={2.2} />
+        </div>
+        <span className="text-[13px] font-semibold text-[#181d26] tracking-ui truncate">
+          {data.label}
+        </span>
       </div>
 
-      <div className="px-3 py-2.5 space-y-1.5">
+      <div className="px-3.5 py-3 space-y-2">
         {cfg?.toolName && (
-          <div className="flex items-center gap-2">
-            <span className="rounded bg-orange-900/50 border border-orange-800/50 px-1.5 py-0.5 text-[10px] font-mono text-orange-300">
+          <div>
+            <span className="rounded-[6px] bg-[#fdebdd] border border-[#f1bd92] px-2 py-0.5 text-[11px] font-mono text-[#c2410c] font-semibold">
               {cfg.toolName}
             </span>
           </div>
         )}
         {data.description && (
-          <p className="text-[11px] text-slate-400">{data.description}</p>
+          <p className="text-[12px] text-[rgba(4,14,32,0.69)] leading-relaxed tracking-ui">
+            {data.description}
+          </p>
         )}
         {cfg?.apiEndpoint && (
-          <p className="text-[10px] text-slate-500 font-mono truncate">{cfg.apiEndpoint}</p>
+          <p className="text-[10px] text-[rgba(4,14,32,0.55)] font-mono truncate border-t border-[#e0e2e6] pt-2">
+            {cfg.apiEndpoint}
+          </p>
         )}
       </div>
 
-      <Handle type="source" position={Position.Bottom} className="!bg-orange-700 !border-orange-500 !w-2.5 !h-2.5" />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!bg-[#ea580c] !border-white !w-[9px] !h-[9px]"
+      />
     </div>
   );
 }
