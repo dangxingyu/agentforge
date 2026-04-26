@@ -13,7 +13,7 @@ export default function LoopNode({ id, data, selected }: NodeProps<NodeData>) {
   const nodes = useFlowStore((s) => s.getNodes());
   const edges = useFlowStore((s) => s.edges);
   const upstream = useMemo(
-    () => collectUpstreamSchemas(id, nodes, edges),
+    () => collectUpstreamSchemas(id, nodes, edges, 'loop-body'),
     [id, nodes, edges]
   );
   const refs = useMemo(

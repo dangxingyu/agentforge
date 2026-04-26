@@ -162,59 +162,95 @@ export interface UpstreamField {
   field: OutputField;
 }
 
-/** Minimal node shape needed for upstream traversal. Accepts both our typed
+/** Minimal node shape needed for graph traversal. Accepts both our typed
  * FlowNode and the generic Node that reactflow's internal store returns. */
 type UpstreamNode = { id: string; data: NodeData; type?: string };
 type UpstreamEdge = { source: string; target: string };
 
+/** Direction for schema collection.
+ *
+ * - `upstream` — agents whose output flows INTO this node. Correct for
+ *   decision nodes (their condition evaluates data flowing into them).
+ *
+ * - `downstream` — agents reachable forward from this node. Correct for
+ *   computing what an upstream agent's output is consumed by, but rarely
+ *   used directly.
+ *
+ * - `loop-body` — for loop nodes. A loop's break condition is evaluated at
+ *   the END of each iteration, so it can reference any agent that ran in
+ *   the loop body. Topologically those are nodes reachable downstream of
+ *   the loop entry that participate in a cycle leading back to the loop
+ *   (or that ran upstream before the loop entry — also still in scope).
+ *   We approximate "loop body" as upstream ∪ downstream, which is slightly
+ *   over-permissive (it includes post-loop agents) but correctly resolves
+ *   the common case of `{{grader.score}}` in an outer-loop wrapping a
+ *   solver-grader cycle.
+ */
+export type SchemaDirection = 'upstream' | 'downstream' | 'loop-body';
+
 /**
- * Walk edges backward from `nodeId` and collect every reachable LLM-agent
- * upstream node's outputSchema. Used by decision/loop condition editors to
- * build autocomplete chips and by canvas renderers to flag unresolved refs.
+ * Walk the graph from `nodeId` in the requested direction and collect every
+ * reachable LLM-agent's outputSchema. Used by decision/loop condition
+ * editors to build autocomplete chips and by canvas renderers to flag
+ * unresolved refs.
  */
 export function collectUpstreamSchemas(
   nodeId: string,
   nodes: UpstreamNode[],
-  edges: UpstreamEdge[]
+  edges: UpstreamEdge[],
+  direction: SchemaDirection = 'upstream'
 ): UpstreamField[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  // reverse adjacency: for each target, the set of source ids
-  const rev = new Map<string, Set<string>>();
+
+  // Build adjacency in both directions so we can walk either way.
+  const rev = new Map<string, Set<string>>(); // target → source ids
+  const fwd = new Map<string, Set<string>>(); // source → target ids
   for (const e of edges) {
     if (!rev.has(e.target)) rev.set(e.target, new Set());
     rev.get(e.target)!.add(e.source);
+    if (!fwd.has(e.source)) fwd.set(e.source, new Set());
+    fwd.get(e.source)!.add(e.target);
   }
 
-  const visited = new Set<string>();
-  const stack: string[] = [nodeId];
-  const found: UpstreamField[] = [];
+  const reached = new Set<string>();
 
-  while (stack.length) {
-    const cur = stack.pop()!;
-    if (visited.has(cur)) continue;
-    visited.add(cur);
-    const sources = rev.get(cur);
-    if (!sources) continue;
-    for (const s of sources) {
-      if (visited.has(s)) continue;
-      const srcNode = byId.get(s);
-      if (!srcNode) continue;
-
-      const agent = srcNode.data.agentConfig;
-      if (agent?.outputSchema && agent.outputSchema.length > 0) {
-        for (const field of agent.outputSchema) {
-          found.push({
-            sourceNodeId: srcNode.id,
-            sourceLabel: srcNode.data.label,
-            role: agent.role,
-            field,
-          });
-        }
+  function walk(start: string, adj: Map<string, Set<string>>) {
+    const visited = new Set<string>();
+    const stack: string[] = [start];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      if (visited.has(cur)) continue;
+      visited.add(cur);
+      const next = adj.get(cur);
+      if (!next) continue;
+      for (const n of next) {
+        if (visited.has(n)) continue;
+        reached.add(n);
+        stack.push(n);
       }
-      stack.push(s);
     }
   }
 
+  if (direction === 'upstream' || direction === 'loop-body') walk(nodeId, rev);
+  if (direction === 'downstream' || direction === 'loop-body') walk(nodeId, fwd);
+
+  const found: UpstreamField[] = [];
+  // Deduplicate: a node could be reached by both walks for `loop-body`
+  for (const id of reached) {
+    if (id === nodeId) continue;
+    const srcNode = byId.get(id);
+    if (!srcNode) continue;
+    const agent = srcNode.data.agentConfig;
+    if (!agent?.outputSchema || agent.outputSchema.length === 0) continue;
+    for (const field of agent.outputSchema) {
+      found.push({
+        sourceNodeId: srcNode.id,
+        sourceLabel: srcNode.data.label,
+        role: agent.role,
+        field,
+      });
+    }
+  }
   return found;
 }
 

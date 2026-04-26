@@ -37,9 +37,15 @@ export default function NodeDetail() {
     if (node) setDraft(JSON.parse(JSON.stringify(node.data)));
   }, [selectedNodeId]);
 
-  // Upstream variables available to this node's condition editor
+  // Variables available to this node's condition editor.
+  // Decision nodes evaluate over data flowing INTO them, so they only see
+  // upstream agents. Loop nodes evaluate at the end of each iteration over
+  // agents that ran inside the loop body, which we approximate as the union
+  // of upstream and downstream reachable agents.
+  const direction =
+    node?.type === 'loop' ? ('loop-body' as const) : ('upstream' as const);
   const upstream = selectedNodeId
-    ? collectUpstreamSchemas(selectedNodeId, nodes, edges)
+    ? collectUpstreamSchemas(selectedNodeId, nodes, edges, direction)
     : [];
 
   if (!node || !draft) return null;

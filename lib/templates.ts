@@ -26,13 +26,13 @@ const MOMUS: Pipeline = {
       sourceHandle: 'true',
       label: 'Threshold met',
       animated: true,
-      style: { stroke: '#22c55e' },
+      style: { stroke: '#16a34a' },
     }),
     edge('e7', 'gradeDecision', 'parallelSolvers', {
       sourceHandle: 'false',
       label: 'Retry',
       animated: true,
-      style: { stroke: '#f59e0b' },
+      style: { stroke: '#d97706' },
     }),
     edge('e8', 'conjectureExtractor', 'parser'),
     edge('e9', 'parser', 'finalSolver'),
@@ -177,11 +177,11 @@ const GCR: Pipeline = {
     edge('e4', 'critic', 'qualityCheck'),
     edge('e5', 'qualityCheck', 'output', {
       sourceHandle: 'true', label: 'Quality OK',
-      animated: true, style: { stroke: '#22c55e' },
+      animated: true, style: { stroke: '#16a34a' },
     }),
     edge('e6', 'qualityCheck', 'refiner', {
       sourceHandle: 'false', label: 'Needs work',
-      animated: true, style: { stroke: '#f59e0b' },
+      animated: true, style: { stroke: '#d97706' },
     }),
     edge('e7', 'refiner', 'critic', { label: 'revised draft', animated: true }),
   ],
@@ -393,11 +393,11 @@ const MAP_REDUCE: Pipeline = {
     edge('e6', 'reducer', 'qualityCheck'),
     edge('e7', 'qualityCheck', 'output', {
       sourceHandle: 'true', label: 'Complete',
-      animated: true, style: { stroke: '#22c55e' },
+      animated: true, style: { stroke: '#16a34a' },
     }),
     edge('e8', 'qualityCheck', 'reducer', {
       sourceHandle: 'false', label: 'Gaps found',
-      animated: true, style: { stroke: '#f59e0b' },
+      animated: true, style: { stroke: '#d97706' },
     }),
   ],
   nodes: [
