@@ -2,18 +2,23 @@
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { NodeData } from '@/types/pipeline';
 import { Zap } from 'lucide-react';
+import NodeRunBadge from './NodeRunBadge';
+import { useRunStore } from '@/store/runStore';
 
-export default function ParallelNode({ data, selected }: NodeProps<NodeData>) {
+export default function ParallelNode({ id, data, selected }: NodeProps<NodeData>) {
   const cfg = data.parallelConfig;
+  const runStatus = useRunStore((s) => s.nodes[id]?.status);
 
   return (
-    <div
-      className={`w-60 rounded-[16px] bg-white overflow-hidden transition-all ${
-        selected
-          ? 'border border-[#16a34a] shadow-[0_0_0_3px_rgba(22,163,74,0.18),0_1px_3px_rgba(22,163,74,0.20)]'
-          : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
-      }`}
-    >
+    <div className="relative">
+      <NodeRunBadge nodeId={id} />
+      <div
+        className={`w-60 rounded-[16px] bg-white overflow-hidden transition-all ${
+          selected
+            ? 'border border-[#16a34a] shadow-[0_0_0_3px_rgba(22,163,74,0.18),0_1px_3px_rgba(22,163,74,0.20)]'
+            : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
+        } ${runStatus === 'running' ? 'ring-2 ring-[#16a34a] ring-offset-2 ring-offset-[#f8fafc]' : ''}`}
+      >
       <Handle
         type="target"
         position={Position.Top}
@@ -67,6 +72,7 @@ export default function ParallelNode({ data, selected }: NodeProps<NodeData>) {
         position={Position.Bottom}
         className="!bg-[#16a34a] !border-white !w-[9px] !h-[9px]"
       />
+      </div>
     </div>
   );
 }

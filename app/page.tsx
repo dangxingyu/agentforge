@@ -1,10 +1,11 @@
 'use client';
 import dynamic from 'next/dynamic';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { usePipelineStore } from '@/store/pipelineStore';
 import ChatPanel from '@/components/ChatPanel';
 import NodeDetail from '@/components/NodeDetail';
 import Toolbar from '@/components/Toolbar';
+import RunPanel from '@/components/RunPanel';
 
 // Canvas must be client-only (React Flow uses browser APIs)
 const Canvas = dynamic(() => import('@/components/Canvas'), { ssr: false });
@@ -14,6 +15,9 @@ export default function Home() {
   const nodeCount = usePipelineStore((s) => s.nodes.length);
   const loadTemplate = usePipelineStore((s) => s.loadTemplate);
   const selectedNodeId = usePipelineStore((s) => s.selectedNodeId);
+
+  // Left-sidebar mode: chat designer or pipeline runner.
+  const [leftMode, setLeftMode] = useState<'chat' | 'run'>('chat');
 
   // Only fall back to the default Momus template when (a) the persist
   // middleware has finished reading localStorage and (b) there's no
@@ -27,11 +31,15 @@ export default function Home() {
 
   return (
     <div className="flex flex-col h-screen bg-white text-[#181d26] overflow-hidden">
-      <Toolbar />
+      <Toolbar onRunClick={() => setLeftMode('run')} runActive={leftMode === 'run'} />
       <div className="flex flex-1 min-h-0">
-        {/* Left: Chat / Pipeline Designer */}
+        {/* Left: Chat designer or Run panel */}
         <div className="w-[340px] shrink-0 border-r border-[#e0e2e6] overflow-hidden bg-white">
-          <ChatPanel />
+          {leftMode === 'chat' ? (
+            <ChatPanel />
+          ) : (
+            <RunPanel onClose={() => setLeftMode('chat')} />
+          )}
         </div>
 
         {/* Center: Canvas */}

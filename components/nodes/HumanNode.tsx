@@ -2,18 +2,21 @@
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { NodeData } from '@/types/pipeline';
 import { UserCheck } from 'lucide-react';
+import NodeRunBadge from './NodeRunBadge';
 
-export default function HumanNode({ data, selected }: NodeProps<NodeData>) {
+export default function HumanNode({ id, data, selected }: NodeProps<NodeData>) {
   const cfg = data.humanConfig;
 
   return (
-    <div
-      className={`w-60 rounded-[16px] bg-white overflow-hidden transition-all ${
-        selected
-          ? 'border border-[#e11d48] shadow-[0_0_0_3px_rgba(225,29,72,0.18),0_1px_3px_rgba(225,29,72,0.20)]'
-          : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
-      }`}
-    >
+    <div className="relative">
+      <NodeRunBadge nodeId={id} />
+      <div
+        className={`w-60 rounded-[16px] bg-white overflow-hidden transition-all ${
+          selected
+            ? 'border border-[#e11d48] shadow-[0_0_0_3px_rgba(225,29,72,0.18),0_1px_3px_rgba(225,29,72,0.20)]'
+            : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
+        }`}
+      >
       <Handle
         type="target"
         position={Position.Top}
@@ -57,6 +60,7 @@ export default function HumanNode({ data, selected }: NodeProps<NodeData>) {
         position={Position.Bottom}
         className="!bg-[#e11d48] !border-white !w-[9px] !h-[9px]"
       />
+      </div>
     </div>
   );
 }

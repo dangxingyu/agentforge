@@ -2,23 +2,35 @@
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { NodeData } from '@/types/pipeline';
 import { ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import NodeRunBadge from './NodeRunBadge';
+import { useRunStore } from '@/store/runStore';
 
-export default function IONode({ data, selected, type }: NodeProps<NodeData>) {
+export default function IONode({ id, data, selected, type }: NodeProps<NodeData>) {
   const isInput = type === 'input';
   const accent = isInput ? '#64748b' : '#6d28d9';
   const bg = isInput ? '#f1f4f8' : '#ece6f8';
   const border = isInput ? '#d1d5db' : '#c5b4e8';
   const shadowRgb = isInput ? '100, 116, 139' : '109, 40, 217';
 
+  const runStatus = useRunStore((s) => s.nodes[id]?.status);
+
   return (
-    <div
-      className={`w-52 rounded-[16px] bg-white overflow-hidden transition-all ${
-        selected
-          ? `border shadow-[0_0_0_3px_rgba(${shadowRgb},0.18),0_1px_3px_rgba(${shadowRgb},0.20)]`
-          : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
-      }`}
-      style={selected ? { borderColor: accent } : undefined}
-    >
+    <div className="relative">
+      <NodeRunBadge nodeId={id} />
+      <div
+        className={`w-52 rounded-[16px] bg-white overflow-hidden transition-all ${
+          selected
+            ? `border shadow-[0_0_0_3px_rgba(${shadowRgb},0.18),0_1px_3px_rgba(${shadowRgb},0.20)]`
+            : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
+        } ${runStatus === 'running' ? 'ring-2 ring-offset-2 ring-offset-[#f8fafc]' : ''}`}
+        style={
+          selected
+            ? { borderColor: accent }
+            : runStatus === 'running'
+              ? ({ '--tw-ring-color': accent } as React.CSSProperties)
+              : undefined
+        }
+      >
       {!isInput && (
         <Handle
           type="target"
@@ -72,6 +84,7 @@ export default function IONode({ data, selected, type }: NodeProps<NodeData>) {
           style={{ background: accent }}
         />
       )}
+      </div>
     </div>
   );
 }

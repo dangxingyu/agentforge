@@ -6,7 +6,9 @@ import type { NodeData } from '@/types/pipeline';
 import { Merge, AlertTriangle } from 'lucide-react';
 import { collectUpstreamSchemas } from '@/lib/pipeline';
 import { extractRefsByRegex } from '@/lib/expression';
+import { useRunStore } from '@/store/runStore';
 import ConditionTokens from './ConditionTokens';
+import NodeRunBadge from './NodeRunBadge';
 
 const STRATEGY_LABEL: Record<string, string> = {
   all: 'Collect all',
@@ -35,14 +37,18 @@ export default function AggregatorNode({ id, data, selected }: NodeProps<NodeDat
     (r) => !upstream.some((u) => u.role === r.role && u.field.name === r.field)
   );
 
+  const runStatus = useRunStore((s) => s.nodes[id]?.status);
+
   return (
-    <div
-      className={`w-60 rounded-[16px] bg-white overflow-hidden transition-all ${
-        selected
-          ? 'border border-[#0891b2] shadow-[0_0_0_3px_rgba(8,145,178,0.18),0_1px_3px_rgba(8,145,178,0.20)]'
-          : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
-      }`}
-    >
+    <div className="relative">
+      <NodeRunBadge nodeId={id} />
+      <div
+        className={`w-60 rounded-[16px] bg-white overflow-hidden transition-all ${
+          selected
+            ? 'border border-[#0891b2] shadow-[0_0_0_3px_rgba(8,145,178,0.18),0_1px_3px_rgba(8,145,178,0.20)]'
+            : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
+        } ${runStatus === 'running' ? 'ring-2 ring-[#0891b2] ring-offset-2 ring-offset-[#f8fafc]' : ''}`}
+      >
       <Handle
         type="target"
         position={Position.Top}
@@ -102,6 +108,7 @@ export default function AggregatorNode({ id, data, selected }: NodeProps<NodeDat
         position={Position.Bottom}
         className="!bg-[#0891b2] !border-white !w-[9px] !h-[9px]"
       />
+      </div>
     </div>
   );
 }

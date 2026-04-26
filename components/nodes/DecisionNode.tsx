@@ -5,7 +5,9 @@ import { GitBranch, AlertTriangle } from 'lucide-react';
 import { useStore as useFlowStore } from 'reactflow';
 import { useMemo } from 'react';
 import { collectUpstreamSchemas, parseVariableRefs } from '@/lib/pipeline';
+import { useRunStore } from '@/store/runStore';
 import ConditionTokens from './ConditionTokens';
+import NodeRunBadge from './NodeRunBadge';
 
 export default function DecisionNode({ id, data, selected }: NodeProps<NodeData>) {
   const cfg = data.decisionConfig;
@@ -26,14 +28,18 @@ export default function DecisionNode({ id, data, selected }: NodeProps<NodeData>
     (r) => !upstream.some((u) => u.role === r.role && u.field.name === r.field)
   );
 
+  const runStatus = useRunStore((s) => s.nodes[id]?.status);
+
   return (
-    <div
-      className={`w-64 rounded-[16px] bg-white overflow-hidden transition-all ${
-        selected
-          ? 'border border-[#d97706] shadow-[0_0_0_3px_rgba(217,119,6,0.18),0_1px_3px_rgba(45,127,249,0.20)]'
-          : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
-      }`}
-    >
+    <div className="relative">
+      <NodeRunBadge nodeId={id} />
+      <div
+        className={`w-64 rounded-[16px] bg-white overflow-hidden transition-all ${
+          selected
+            ? 'border border-[#d97706] shadow-[0_0_0_3px_rgba(217,119,6,0.18),0_1px_3px_rgba(45,127,249,0.20)]'
+            : 'border border-[#e0e2e6] shadow-[0_1px_2px_rgba(15,48,106,0.04),0_4px_14px_rgba(15,48,106,0.06)] hover:border-[#cbd0d7]'
+        } ${runStatus === 'running' ? 'ring-2 ring-[#d97706] ring-offset-2 ring-offset-[#f8fafc]' : ''}`}
+      >
       <Handle
         type="target"
         position={Position.Top}
@@ -107,6 +113,7 @@ export default function DecisionNode({ id, data, selected }: NodeProps<NodeData>
         id="false"
         className="!bg-[#be123c] !border-white !w-[9px] !h-[9px]"
       />
+      </div>
     </div>
   );
 }

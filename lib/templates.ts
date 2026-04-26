@@ -21,7 +21,8 @@ const MOMUS: Pipeline = {
     edge('e2', 'outerLoop', 'parallelSolvers'),
     edge('e3', 'parallelSolvers', 'solver', { animated: true }),
     edge('e4', 'solver', 'grader'),
-    edge('e5', 'grader', 'gradeDecision'),
+    edge('e5', 'grader', 'bestSolver'),
+    edge('e5b', 'bestSolver', 'gradeDecision'),
     edge('e6', 'gradeDecision', 'conjectureExtractor', {
       sourceHandle: 'true',
       label: 'Threshold met',
@@ -100,14 +101,22 @@ Return JSON: { "score": float (0-1), "verdict": "correct"|"partial"|"incorrect",
       },
     },
     {
-      id: 'gradeDecision', type: 'decision', position: { x: 150, y: 810 },
+      id: 'bestSolver', type: 'aggregator', position: { x: 150, y: 810 },
       data: {
-        label: 'Grade Check', description: 'Has the solution reached the quality threshold?',
+        label: 'Pick Best Solution',
+        description: 'From the K parallel solver-grader pairs, keep the one with the highest score',
+        aggregatorConfig: { strategy: 'best', selectionCriteria: '{{grader.score}}' },
+      },
+    },
+    {
+      id: 'gradeDecision', type: 'decision', position: { x: 150, y: 950 },
+      data: {
+        label: 'Grade Check', description: 'Has the best solution reached the quality threshold?',
         decisionConfig: { condition: '{{grader.score}} >= 0.8', trueLabel: 'Threshold Met', falseLabel: 'Retry' },
       },
     },
     {
-      id: 'conjectureExtractor', type: 'llm_agent', position: { x: 530, y: 960 },
+      id: 'conjectureExtractor', type: 'llm_agent', position: { x: 530, y: 1100 },
       data: {
         label: 'Conjecture Extractor', description: 'Synthesizes key insights from all partial solutions',
         agentConfig: {
@@ -125,7 +134,7 @@ Prioritize insights appearing across multiple attempts or representing genuine m
       },
     },
     {
-      id: 'parser', type: 'llm_agent', position: { x: 530, y: 1130 },
+      id: 'parser', type: 'llm_agent', position: { x: 530, y: 1270 },
       data: {
         label: 'Parser Agent', description: 'Formats and deduplicates extracted conjectures',
         agentConfig: {
@@ -142,7 +151,7 @@ Output: clean markdown with LaTeX math expressions.`,
       },
     },
     {
-      id: 'finalSolver', type: 'llm_agent', position: { x: 530, y: 1300 },
+      id: 'finalSolver', type: 'llm_agent', position: { x: 530, y: 1440 },
       data: {
         label: 'Final Solver', description: 'Synthesizes all insights into a complete proof',
         agentConfig: {
@@ -157,7 +166,7 @@ Your task: Produce the definitive, complete, elegant solution by selecting the m
         },
       },
     },
-    { id: 'output', type: 'output', position: { x: 530, y: 1460 }, data: { label: 'Final Solution', description: 'Complete, rigorous mathematical proof' } },
+    { id: 'output', type: 'output', position: { x: 530, y: 1600 }, data: { label: 'Final Solution', description: 'Complete, rigorous mathematical proof' } },
   ],
 };
 

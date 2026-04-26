@@ -1,10 +1,15 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
-import { Download, Upload, Layers, ChevronDown, Plus } from 'lucide-react';
+import { Download, Upload, Layers, ChevronDown, Plus, Play } from 'lucide-react';
 import { usePipelineStore } from '@/store/pipelineStore';
 import { TEMPLATES } from '@/lib/templates';
 import { exportPipelineYAML, exportPromptsYAML, createNode, generatePipelineId } from '@/lib/pipeline';
 import type { NodeKind } from '@/types/pipeline';
+
+interface ToolbarProps {
+  onRunClick?: () => void;
+  runActive?: boolean;
+}
 
 const NODE_TYPES: { kind: NodeKind; label: string; dot: string }[] = [
   { kind: 'llm_agent', label: 'LLM Agent', dot: '#1b61c9' },
@@ -16,7 +21,7 @@ const NODE_TYPES: { kind: NodeKind; label: string; dot: string }[] = [
   { kind: 'tool', label: 'Tool Call', dot: '#ea580c' },
 ];
 
-export default function Toolbar() {
+export default function Toolbar({ onRunClick, runActive }: ToolbarProps = {}) {
   const { nodes, edges, pipeline, loadTemplate, setNodes, setEdges } = usePipelineStore();
   const [open, setOpen] = useState<null | 'templates' | 'add' | 'export'>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -163,15 +168,15 @@ export default function Toolbar() {
         <Upload size={14} strokeWidth={2} /> Import
       </SecondaryButton>
 
-      {/* Export (primary) */}
+      {/* Export */}
       <div className="relative">
-        <button
+        <SecondaryButton
           onClick={() => setOpen(open === 'export' ? null : 'export')}
-          className={`flex items-center gap-1.5 px-4 h-9 text-[13px] font-medium text-white bg-[#1b61c9] hover:bg-[#1755b1] rounded-[12px] transition-colors tracking-ui shadow-[0_1px_3px_rgba(45,127,249,0.28)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1b61c9]`}
+          active={open === 'export'}
         >
-          <Download size={14} strokeWidth={2.2} /> Export
-          <ChevronDown size={12} strokeWidth={2.2} className="opacity-90" />
-        </button>
+          <Download size={14} strokeWidth={2} /> Export
+          <ChevronDown size={12} strokeWidth={2.2} className="opacity-60" />
+        </SecondaryButton>
         {open === 'export' && (
           <Popover>
             <PopoverHeader>Export pipeline</PopoverHeader>
@@ -193,6 +198,21 @@ export default function Toolbar() {
           </Popover>
         )}
       </div>
+
+      {/* Run (primary CTA) */}
+      {onRunClick && (
+        <button
+          onClick={onRunClick}
+          className={`flex items-center gap-1.5 px-4 h-9 text-[13px] font-semibold rounded-[12px] transition-colors tracking-ui focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#15803d] ${
+            runActive
+              ? 'bg-[#0f5e2e] text-white shadow-[0_1px_3px_rgba(22,163,74,0.35)]'
+              : 'bg-[#15803d] hover:bg-[#0f5e2e] text-white shadow-[0_1px_3px_rgba(22,163,74,0.28)]'
+          }`}
+        >
+          <Play size={13} strokeWidth={2.2} className="fill-current" />
+          Run
+        </button>
+      )}
     </div>
   );
 }
