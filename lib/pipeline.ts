@@ -129,28 +129,10 @@ export function generatePipelineId(): string {
 // outputSchema. This makes the spec self-checking — if no upstream agent
 // declares `grader.score`, the condition is flagged as unresolved in the UI.
 
-const REF_REGEX = /\{\{\s*([\w-]+)\s*\.\s*([\w-]+)\s*\}\}/g;
-
-export interface VariableRef {
-  /** Original matched token, e.g. "{{grader.score}}" */
-  raw: string;
-  /** Agent role (left side of the dot) */
-  role: string;
-  /** Output field name (right side of the dot) */
-  field: string;
-}
-
-/** Extract all `{{role.field}}` references from a condition string. */
-export function parseVariableRefs(expression: string): VariableRef[] {
-  if (!expression) return [];
-  const refs: VariableRef[] = [];
-  let m: RegExpExecArray | null;
-  const re = new RegExp(REF_REGEX);
-  while ((m = re.exec(expression)) !== null) {
-    refs.push({ raw: m[0], role: m[1], field: m[2] });
-  }
-  return refs;
-}
+// Re-export the single source of truth from the expression module.
+import { extractRefsByRegex, type VariableRef } from './expression';
+export type { VariableRef } from './expression';
+export { extractRefsByRegex as parseVariableRefs } from './expression';
 
 export interface UpstreamField {
   /** Source node id — useful for hover / disambiguation. */
@@ -262,7 +244,7 @@ export function findUnresolvedRefs(
   expression: string,
   upstream: UpstreamField[]
 ): VariableRef[] {
-  const refs = parseVariableRefs(expression);
+  const refs = extractRefsByRegex(expression);
   return refs.filter(
     (r) => !upstream.some((u) => u.role === r.role && u.field.name === r.field)
   );

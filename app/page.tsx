@@ -10,11 +10,20 @@ import Toolbar from '@/components/Toolbar';
 const Canvas = dynamic(() => import('@/components/Canvas'), { ssr: false });
 
 export default function Home() {
-  const { loadTemplate, selectedNodeId } = usePipelineStore();
+  const hasHydrated = usePipelineStore((s) => s._hasHydrated);
+  const nodeCount = usePipelineStore((s) => s.nodes.length);
+  const loadTemplate = usePipelineStore((s) => s.loadTemplate);
+  const selectedNodeId = usePipelineStore((s) => s.selectedNodeId);
 
+  // Only fall back to the default Momus template when (a) the persist
+  // middleware has finished reading localStorage and (b) there's no
+  // pipeline already in the store. This prevents clobbering the user's
+  // saved work on reload and avoids a flash of the default template.
   useEffect(() => {
-    loadTemplate('momus');
-  }, [loadTemplate]);
+    if (hasHydrated && nodeCount === 0) {
+      loadTemplate('momus');
+    }
+  }, [hasHydrated, nodeCount, loadTemplate]);
 
   return (
     <div className="flex flex-col h-screen bg-white text-[#181d26] overflow-hidden">

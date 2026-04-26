@@ -19,7 +19,7 @@ const MOMUS: Pipeline = {
   edges: [
     edge('e1', 'input', 'outerLoop'),
     edge('e2', 'outerLoop', 'parallelSolvers'),
-    edge('e3', 'parallelSolvers', 'solver', { label: '× 4 instances', animated: true }),
+    edge('e3', 'parallelSolvers', 'solver', { animated: true }),
     edge('e4', 'solver', 'grader'),
     edge('e5', 'grader', 'gradeDecision'),
     edge('e6', 'gradeDecision', 'conjectureExtractor', {
@@ -252,7 +252,7 @@ const PAD: Pipeline = {
   updatedAt: '2024-01-01T00:00:00Z',
   edges: [
     edge('e1', 'input', 'fanOut'),
-    edge('e2', 'fanOut', 'solver', { label: '× N instances', animated: true }),
+    edge('e2', 'fanOut', 'solver', { animated: true }),
     edge('e3', 'solver', 'collector'),
     edge('e4', 'collector', 'ranker'),
     edge('e5', 'ranker', 'refiner'),
@@ -320,7 +320,7 @@ const DAC: Pipeline = {
   edges: [
     edge('e1', 'input', 'decomposer'),
     edge('e2', 'decomposer', 'fanOut'),
-    edge('e3', 'fanOut', 'subSolver', { label: '× sub-problems', animated: true }),
+    edge('e3', 'fanOut', 'subSolver', { animated: true }),
     edge('e4', 'subSolver', 'collector'),
     edge('e5', 'collector', 'synthesizer'),
     edge('e6', 'synthesizer', 'output'),
@@ -387,7 +387,7 @@ const MAP_REDUCE: Pipeline = {
   edges: [
     edge('e1', 'input', 'splitter'),
     edge('e2', 'splitter', 'fanOut'),
-    edge('e3', 'fanOut', 'mapper', { label: '× chunks', animated: true }),
+    edge('e3', 'fanOut', 'mapper', { animated: true }),
     edge('e4', 'mapper', 'collector'),
     edge('e5', 'collector', 'reducer'),
     edge('e6', 'reducer', 'qualityCheck'),

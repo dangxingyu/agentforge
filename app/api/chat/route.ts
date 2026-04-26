@@ -22,28 +22,42 @@ The available node types in AgentForge:
 - **tool**: External API or function call (toolName, apiEndpoint)
 - **input/output**: Entry/exit points
 
-## Variable references in conditions — IMPORTANT
+## Condition expression language — IMPORTANT
 
-Any decision node's \`condition\` or loop node's \`breakCondition\` that
-references a runtime value MUST use \`{{role.field}}\` template syntax,
-where \`role\` is the \`role\` of an upstream llm_agent and \`field\` is one
-of the field names declared in that agent's \`outputSchema\`. Otherwise
-the reference is unresolvable and the UI will flag it as an error.
+Any decision \`condition\`, loop \`breakCondition\`, or aggregator
+\`selectionCriteria\` is parsed by AgentForge's expression language.
+The supported grammar is:
+
+- Literals: numbers (\`0.8\`, \`-3\`), strings (\`"correct"\` or \`'pass'\`),
+  booleans (\`true\` / \`false\`), and \`null\`
+- Variable references: \`{{role.field}}\` where \`role\` matches an
+  upstream llm_agent's \`role\` and \`field\` is in that agent's \`outputSchema\`
+- Comparison: \`==\` \`!=\` \`<\` \`<=\` \`>\` \`>=\`
+- Logical: \`&&\` \`||\` \`!\`
+- Arithmetic: \`+\` \`-\` \`*\` \`/\` \`%\`
+- Parentheses: \`( )\`
+
+**Bare names like \`score >= 0.8\` are rejected.** Always wrap variable
+references in \`{{role.field}}\` so the spec is self-checking.
+
+Example: \`{{grader.score}} >= 0.8 && {{grader.verdict}} == "correct"\`
+
+## outputSchema — IMPORTANT
 
 Every llm_agent that produces a value consumed downstream (scores,
 verdicts, quality metrics, etc.) must declare an \`outputSchema\`:
 
-\`outputSchema\`: an array of \`{ name, type, description?, enumValues? }\`
-where \`type\` is one of \`number | string | boolean | enum | array | object\`.
+\`outputSchema\`: array of \`{ name, type, description?, enumValues? }\`
+where \`type\` is \`number | string | boolean | enum | array | object\`.
 
-Example pattern:
-- Grader agent: \`role: "grader"\`, \`systemPrompt\` tells it to return
-  \`{"score": <float>, "verdict": "pass"|"fail"}\`, and
-  \`outputSchema: [{"name":"score","type":"number"},{"name":"verdict","type":"enum","enumValues":["pass","fail"]}]\`.
-- Downstream decision: \`condition: "{{grader.score}} >= 0.8"\`.
+Example: a grader agent with \`role: "grader"\` whose system prompt says
+"Return JSON: {score: float, verdict: pass|fail}" should also declare
+\`outputSchema: [{"name":"score","type":"number"},{"name":"verdict","type":"enum","enumValues":["pass","fail"]}]\`,
+which lets a downstream decision use \`{{grader.score}} >= 0.8\`.
 
-Never emit bare variable names like \`score >= 0.8\` — they will not
-resolve at runtime.
+For aggregator nodes with \`strategy: "best"\` or \`"vote"\`, the
+\`selectionCriteria\` must be a single \`{{role.field}}\` reference (the
+field whose value picks the winning parallel instance).
 
 ## Your conversation flow:
 1. When user describes a pipeline, ask 2-3 focused clarifying questions about the key design decisions (e.g., "How many parallel solvers?", "What's the quality threshold?", "Which models should handle each role?")
@@ -94,18 +108,13 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Check if there's a pipeline JSON in the response
-        const pipelineMatch = fullText.match(/```json\s*(\{[\s\S]*?"type"\s*:\s*"pipeline"[\s\S]*?\})\s*```/);
-        if (pipelineMatch) {
-          try {
-            const parsed = JSON.parse(pipelineMatch[1]);
-            if (parsed.pipeline) {
-              const pipelineData = JSON.stringify({ type: 'pipeline', pipeline: parsed.pipeline });
-              controller.enqueue(encoder.encode(`data: ${pipelineData}\n\n`));
-            }
-          } catch {
-            // ignore parse errors in pipeline extraction
-          }
+        // Try multiple strategies to extract a pipeline JSON from the
+        // assistant's response. Claude isn't always consistent: it might
+        // emit ```json fences, ``` (no language), or no fence at all.
+        const pipeline = extractPipelineJSON(fullText);
+        if (pipeline) {
+          const pipelineData = JSON.stringify({ type: 'pipeline', pipeline });
+          controller.enqueue(encoder.encode(`data: ${pipelineData}\n\n`));
         }
 
         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
@@ -125,4 +134,75 @@ export async function POST(req: NextRequest) {
       Connection: 'keep-alive',
     },
   });
+}
+
+// ─── Pipeline JSON extraction ────────────────────────────────────────────
+//
+// The assistant might emit:
+//   ```json\n{...}\n```        (preferred, with language tag)
+//   ```\n{...}\n```            (no language tag)
+//   {...}                      (raw, no fence)
+// We try each format in order and return the first object whose shape
+// looks like a pipeline ({type:"pipeline", pipeline:{...}}).
+
+function extractPipelineJSON(text: string): unknown | null {
+  // 1. Fenced blocks (with or without "json" tag)
+  const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)];
+  for (const m of fenced) {
+    const obj = tryParsePipeline(m[1]);
+    if (obj) return obj;
+  }
+
+  // 2. Raw JSON object — find the smallest balanced {…} containing
+  //    `"type":"pipeline"`. Linear scan with a brace counter.
+  const idx = text.indexOf('"type"');
+  if (idx >= 0) {
+    // Walk backward to find the enclosing `{`
+    let depth = 0;
+    let start = -1;
+    for (let i = idx; i >= 0; i--) {
+      if (text[i] === '}') depth++;
+      else if (text[i] === '{') {
+        if (depth === 0) {
+          start = i;
+          break;
+        }
+        depth--;
+      }
+    }
+    if (start >= 0) {
+      // Walk forward to find the matching `}`
+      depth = 0;
+      for (let i = start; i < text.length; i++) {
+        if (text[i] === '{') depth++;
+        else if (text[i] === '}') {
+          depth--;
+          if (depth === 0) {
+            const obj = tryParsePipeline(text.slice(start, i + 1));
+            if (obj) return obj;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function tryParsePipeline(src: string): unknown | null {
+  try {
+    const parsed = JSON.parse(src.trim());
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      (parsed as { type?: string }).type === 'pipeline' &&
+      (parsed as { pipeline?: unknown }).pipeline
+    ) {
+      return (parsed as { pipeline: unknown }).pipeline;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

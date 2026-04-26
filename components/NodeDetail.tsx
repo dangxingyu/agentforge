@@ -273,21 +273,44 @@ export default function NodeDetail() {
         {/* Aggregator config */}
         {draft.aggregatorConfig && (
           <>
-            <Field label="Strategy">
+            <Field
+              label="Strategy"
+              hint={(() => {
+                switch (draft.aggregatorConfig.strategy) {
+                  case 'all': return 'Pass all parallel results downstream as a list.';
+                  case 'best': return 'Pick the single result that maximizes the selection field.';
+                  case 'vote': return 'Pick the most common value of the selection field.';
+                  case 'first': return 'Take whichever parallel instance finishes first.';
+                  case 'concat': return 'Concatenate all results into a single string.';
+                }
+              })()}
+            >
               <Select
                 value={draft.aggregatorConfig.strategy}
                 onChange={(v) => setAggregator({ strategy: v as AggregatorConfig['strategy'] })}
                 options={(['all', 'best', 'vote', 'first', 'concat'] as const).map((s) => ({ value: s, label: s }))}
               />
             </Field>
-            <Field label="Selection criteria">
-              <input
-                value={draft.aggregatorConfig.selectionCriteria ?? ''}
-                onChange={(e) => setAggregator({ selectionCriteria: e.target.value })}
-                className="input-airtable"
-                placeholder="e.g. highest score"
-              />
-            </Field>
+            {(draft.aggregatorConfig.strategy === 'best' ||
+              draft.aggregatorConfig.strategy === 'vote') && (
+              <Field
+                label={
+                  draft.aggregatorConfig.strategy === 'best'
+                    ? 'Field to maximize'
+                    : 'Field to vote on'
+                }
+                hint="Reference a single field with {{role.field}}. The aggregator picks the parallel instance whose value of this field wins."
+              >
+                <ConditionEditor
+                  value={draft.aggregatorConfig.selectionCriteria ?? ''}
+                  onChange={(v) => setAggregator({ selectionCriteria: v })}
+                  upstream={upstream}
+                  accent="#0891b2"
+                  placeholder="{{solver.score}}"
+                  singleRefMode
+                />
+              </Field>
+            )}
           </>
         )}
 

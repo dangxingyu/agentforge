@@ -1,7 +1,12 @@
 'use client';
 import { Handle, Position, type NodeProps } from 'reactflow';
+import { useStore as useFlowStore } from 'reactflow';
+import { useMemo } from 'react';
 import type { NodeData } from '@/types/pipeline';
-import { Merge } from 'lucide-react';
+import { Merge, AlertTriangle } from 'lucide-react';
+import { collectUpstreamSchemas } from '@/lib/pipeline';
+import { extractRefsByRegex } from '@/lib/expression';
+import ConditionTokens from './ConditionTokens';
 
 const STRATEGY_LABEL: Record<string, string> = {
   all: 'Collect all',
@@ -11,8 +16,24 @@ const STRATEGY_LABEL: Record<string, string> = {
   concat: 'Concatenate',
 };
 
-export default function AggregatorNode({ data, selected }: NodeProps<NodeData>) {
+export default function AggregatorNode({ id, data, selected }: NodeProps<NodeData>) {
   const cfg = data.aggregatorConfig;
+  const usesCriteria = cfg?.strategy === 'best' || cfg?.strategy === 'vote';
+
+  const nodes = useFlowStore((s) => s.getNodes());
+  const edges = useFlowStore((s) => s.edges);
+  const upstream = useMemo(
+    () => collectUpstreamSchemas(id, nodes, edges),
+    [id, nodes, edges]
+  );
+
+  const refs = useMemo(
+    () => (usesCriteria ? extractRefsByRegex(cfg?.selectionCriteria ?? '') : []),
+    [cfg?.selectionCriteria, usesCriteria]
+  );
+  const unresolved = refs.filter(
+    (r) => !upstream.some((u) => u.role === r.role && u.field.name === r.field)
+  );
 
   return (
     <div
@@ -32,9 +53,18 @@ export default function AggregatorNode({ data, selected }: NodeProps<NodeData>) 
         <div className="w-6 h-6 rounded-[8px] bg-[#0891b2] flex items-center justify-center shrink-0 shadow-[0_1px_2px_rgba(8,145,178,0.35)]">
           <Merge size={13} className="text-white" strokeWidth={2.2} />
         </div>
-        <span className="text-[13px] font-semibold text-[#181d26] tracking-ui truncate">
+        <span className="text-[13px] font-semibold text-[#181d26] tracking-ui truncate flex-1">
           {data.label}
         </span>
+        {unresolved.length > 0 && (
+          <span
+            className="shrink-0 flex items-center gap-1 rounded-[6px] bg-[#fdf2f4] border border-[#f1b4c0] px-1.5 py-0.5 text-[9px] font-semibold text-[#be123c] tracking-caption"
+            title={`${unresolved.length} unresolved reference${unresolved.length > 1 ? 's' : ''}`}
+          >
+            <AlertTriangle size={9} strokeWidth={2.5} />
+            {unresolved.length}
+          </span>
+        )}
       </div>
 
       <div className="px-3.5 py-3 space-y-2">
@@ -53,10 +83,17 @@ export default function AggregatorNode({ data, selected }: NodeProps<NodeData>) 
             </span>
           </div>
         )}
-        {cfg?.selectionCriteria && (
-          <p className="text-[10px] text-[rgba(4,14,32,0.55)] font-mono leading-relaxed border-t border-[#e0e2e6] pt-2">
-            {cfg.selectionCriteria}
-          </p>
+        {usesCriteria && cfg?.selectionCriteria && (
+          <div className="rounded-[10px] bg-[#f0fafd] border border-[#a3d1dc] px-2.5 py-2">
+            <p className="text-[10px] uppercase tracking-caption text-[#0e7490] font-semibold mb-1">
+              {cfg.strategy === 'best' ? 'Maximize' : 'Vote on'}
+            </p>
+            <ConditionTokens
+              expression={cfg.selectionCriteria}
+              upstream={upstream}
+              accentText="text-[#0e7490]"
+            />
+          </div>
         )}
       </div>
 

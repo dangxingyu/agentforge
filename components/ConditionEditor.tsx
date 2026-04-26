@@ -1,22 +1,26 @@
 'use client';
 import { useRef, useMemo } from 'react';
-import { AlertTriangle, Sparkles } from 'lucide-react';
+import { AlertTriangle, Sparkles, AlertCircle } from 'lucide-react';
 import type { UpstreamField } from '@/lib/pipeline';
-import { parseVariableRefs } from '@/lib/pipeline';
+import { validateExpression } from '@/lib/expression';
 
 interface Props {
   value: string;
   onChange: (value: string) => void;
   upstream: UpstreamField[];
   placeholder?: string;
-  /** Accent color class for the focus ring — matches the node's theme. */
+  /** Accent color hex used by the focus ring — matches the node's theme. */
   accent?: string;
+  /** When true, only a single `{{role.field}}` token is expected
+   * (used for aggregator selectionCriteria). */
+  singleRefMode?: boolean;
 }
 
 /**
  * Condition editor with insertable upstream variable chips. Parses the
- * current expression for `{{role.field}}` tokens and flags any that don't
- * match an available upstream agent's outputSchema.
+ * current expression, surfaces both syntax errors and unresolved-ref
+ * errors, and lets the user click a chip to insert a `{{role.field}}`
+ * token at the cursor position.
  */
 export default function ConditionEditor({
   value,
@@ -24,21 +28,22 @@ export default function ConditionEditor({
   upstream,
   placeholder,
   accent = '#1b61c9',
+  singleRefMode = false,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const refs = useMemo(() => parseVariableRefs(value), [value]);
-
-  // Map availability
-  const available = useMemo(() => {
+  const availableSet = useMemo(() => {
     const set = new Set<string>();
     for (const u of upstream) set.add(`${u.role}.${u.field.name}`);
     return set;
   }, [upstream]);
 
-  const unresolved = refs.filter((r) => !available.has(`${r.role}.${r.field}`));
+  const validation = useMemo(
+    () => validateExpression(value, availableSet),
+    [value, availableSet]
+  );
 
-  // Group upstream fields by role for a cleaner chip list
+  // Group upstream fields by role for the picker
   const grouped = useMemo(() => {
     const map = new Map<string, UpstreamField[]>();
     for (const u of upstream) {
@@ -56,23 +61,29 @@ export default function ConditionEditor({
     }
     const start = el.selectionStart ?? value.length;
     const end = el.selectionEnd ?? value.length;
-    const next = value.slice(0, start) + token + value.slice(end);
+    // In single-ref mode, replace the entire value
+    const next = singleRefMode
+      ? token
+      : value.slice(0, start) + token + value.slice(end);
     onChange(next);
-    // restore focus + position after React re-render
     requestAnimationFrame(() => {
       el.focus();
-      const pos = start + token.length;
+      const pos = singleRefMode ? token.length : start + token.length;
       el.setSelectionRange(pos, pos);
     });
   }
 
+  const hasSyntaxErrors = validation.syntaxErrors.length > 0;
+  const hasUnresolvedRefs = validation.unresolvedRefs.length > 0;
+
   return (
     <div>
       <div
-        className="relative rounded-[10px] border border-[#e0e2e6] bg-white transition-all focus-within:shadow-[0_0_0_3px_rgba(27,97,201,0.12)]"
+        className="relative rounded-[10px] border bg-white transition-all focus-within:shadow-[0_0_0_3px_rgba(27,97,201,0.12)]"
         style={
           {
             '--ce-accent': accent,
+            borderColor: hasSyntaxErrors ? '#be123c' : '#e0e2e6',
           } as React.CSSProperties
         }
       >
@@ -81,16 +92,16 @@ export default function ConditionEditor({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder ?? 'e.g. {{grader.score}} >= 0.8'}
-          className="w-full bg-transparent px-3 py-2 text-[13px] font-mono text-[#181d26] placeholder:text-[rgba(4,14,32,0.38)] outline-none tracking-ui focus:[&]:[border-color:var(--ce-accent)]"
+          className="w-full bg-transparent px-3 py-2 text-[13px] font-mono text-[#181d26] placeholder:text-[rgba(4,14,32,0.38)] outline-none tracking-ui"
           spellCheck={false}
         />
       </div>
 
-      {/* Live parse preview: show tokens as colored chips beneath the input */}
-      {refs.length > 0 && (
+      {/* Live ref preview */}
+      {validation.refs.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {refs.map((r, i) => {
-            const ok = available.has(`${r.role}.${r.field}`);
+          {validation.refs.map((r, i) => {
+            const ok = availableSet.has(`${r.role}.${r.field}`);
             return (
               <span
                 key={i}
@@ -113,14 +124,35 @@ export default function ConditionEditor({
         </div>
       )}
 
-      {/* Unresolved warning */}
-      {unresolved.length > 0 && (
+      {/* Syntax errors */}
+      {hasSyntaxErrors && (
+        <div className="mt-2 rounded-[8px] bg-[#fdf2f4] border border-[#f1b4c0] px-2.5 py-1.5">
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold text-[#be123c] tracking-ui">
+            <AlertCircle size={12} strokeWidth={2.5} />
+            Syntax error
+          </p>
+          <ul className="mt-1 space-y-0.5 pl-5 list-disc list-outside">
+            {validation.syntaxErrors.map((e, i) => (
+              <li
+                key={i}
+                className="text-[11px] text-[#be123c] tracking-ui leading-snug"
+              >
+                <span className="font-mono">@{e.pos}</span> {e.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Unresolved-ref banner */}
+      {hasUnresolvedRefs && (
         <p className="mt-2 flex items-start gap-1.5 text-[11px] text-[#be123c] tracking-ui leading-snug">
           <AlertTriangle size={12} strokeWidth={2.5} className="mt-0.5 shrink-0" />
           <span>
-            <strong>{unresolved.length}</strong> reference
-            {unresolved.length > 1 ? 's' : ''} can&rsquo;t be resolved. Either declare the
-            field in an upstream agent&rsquo;s output schema, or remove the reference.
+            <strong>{validation.unresolvedRefs.length}</strong> reference
+            {validation.unresolvedRefs.length > 1 ? 's' : ''} can&rsquo;t be resolved.
+            Either declare the field on an upstream agent&rsquo;s output schema, or
+            remove the reference.
           </span>
         </p>
       )}
@@ -129,12 +161,13 @@ export default function ConditionEditor({
       <div className="mt-3">
         <p className="text-[10px] uppercase tracking-caption text-[rgba(4,14,32,0.55)] font-semibold mb-1.5 flex items-center gap-1.5">
           <Sparkles size={11} strokeWidth={2.2} className="text-[#1b61c9]" />
-          Available upstream variables
+          {singleRefMode ? 'Pick a field' : 'Available upstream variables'}
         </p>
         {grouped.length === 0 ? (
           <p className="text-[11px] text-[rgba(4,14,32,0.55)] italic tracking-ui px-2 py-1.5 rounded-[8px] bg-[#f8fafc] border border-dashed border-[#e0e2e6]">
             No upstream agent has declared an output schema. Add fields on an
-            agent node&rsquo;s <em>Output schema</em> section and they&rsquo;ll show up here.
+            agent node&rsquo;s <em>Output schema</em> section and they&rsquo;ll show up
+            here.
           </p>
         ) : (
           <div className="space-y-2">
