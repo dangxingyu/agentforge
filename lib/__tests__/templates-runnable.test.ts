@@ -22,9 +22,23 @@ describe('Momus IMO Solver template', () => {
     const c = counter();
     const llm: LLMCaller = {
       async call({ system }) {
-        if (system.includes('mathematical problem solver')) return `solution_${c()}`;
-        if (system.includes('mathematical solution evaluator'))
-          return '{"score": 0.9, "verdict": "correct", "feedback": "ok", "key_insights": [], "missing_steps": []}';
+        // The dialectic-engine prompt opens with "## DIALECTIC ENGINE PROMPT".
+        if (system.startsWith('## DIALECTIC ENGINE PROMPT')) return `solution_${c()}`;
+        // Council of Graders prompt — emits 7/7 with the JSON tail.
+        if (system.startsWith('## **Prompt: Council of Graders'))
+          return 'Final Grade: 7/7\n\n```json\n{"grade": 7, "verdict": "Clean bill of health", "areas_for_improvement": [], "scaffolding_questions": []}\n```';
+        // Conjecture extractor.
+        if (system.startsWith('## Conjecture Extraction Prompt'))
+          return '```json\n{"conjectures": ["C1"], "negations": ["¬C1"], "proof": "QED"}\n```';
+        // Conjecture parser (re-extracts).
+        if (system.startsWith('## Conjecture Parser'))
+          return '```json\n{"conjectures": ["C1"], "negations": ["¬C1"], "proof": "QED"}\n```';
+        // Quality checker.
+        if (system.startsWith('You are a quality checker'))
+          return 'PASS\n\n```json\n{"verdict": "PASS", "reason": "self-contained"}\n```';
+        // Recursive verifier.
+        if (system.startsWith('You are a recursive verifier'))
+          return '```json\n{"proven_lemmas": [{"conjecture": "C1", "proof": "QED", "grade": 7}]}\n```';
         return 'ok';
       },
     };

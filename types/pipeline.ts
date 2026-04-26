@@ -18,6 +18,8 @@ export type ModelId =
   | 'gpt-4o'
   | 'gpt-4o-mini'
   | 'gemini-2.5-pro'
+  | 'gemini-2.5-pro-native'
+  | 'gemini-2.5-flash-native'
   | 'gemini-2.0-flash';
 
 export const MODEL_LABELS: Record<ModelId, string> = {
@@ -27,6 +29,8 @@ export const MODEL_LABELS: Record<ModelId, string> = {
   'gpt-4o': 'GPT-4o',
   'gpt-4o-mini': 'GPT-4o Mini',
   'gemini-2.5-pro': 'Gemini 2.5 Pro',
+  'gemini-2.5-pro-native': 'Gemini 2.5 Pro (native thinking)',
+  'gemini-2.5-flash-native': 'Gemini 2.5 Flash (native thinking)',
   'gemini-2.0-flash': 'Gemini 2.0 Flash',
 };
 
@@ -37,8 +41,17 @@ export const MODEL_PROVIDERS: Record<ModelId, string> = {
   'gpt-4o': 'OpenAI',
   'gpt-4o-mini': 'OpenAI',
   'gemini-2.5-pro': 'Google',
+  'gemini-2.5-pro-native': 'Google',
+  'gemini-2.5-flash-native': 'Google',
   'gemini-2.0-flash': 'Google',
 };
+
+/** Models that accept a `thinking_budget` (Gemini's reasoning-token allocation). */
+export const MODELS_WITH_THINKING: ReadonlySet<ModelId> = new Set<ModelId>([
+  'gemini-2.5-pro',
+  'gemini-2.5-pro-native',
+  'gemini-2.5-flash-native',
+]);
 
 export type OutputFieldType = 'number' | 'string' | 'boolean' | 'enum' | 'array' | 'object';
 
@@ -58,6 +71,9 @@ export interface LLMAgentConfig {
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
+  /** Reasoning-token allocation for models that support it (Gemini's
+   * `thinking_budget`). Ignored for other providers. */
+  thinkingBudget?: number;
   /**
    * Declared output schema. Downstream decision/loop nodes reference these
    * fields as `{{role.field}}` (e.g. `{{grader.score}} >= 0.8`).

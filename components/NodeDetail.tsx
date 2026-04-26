@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { X, ChevronDown } from 'lucide-react';
 import { usePipelineStore } from '@/store/pipelineStore';
 import type { NodeData, ModelId, LLMAgentConfig, DecisionConfig, LoopConfig, ParallelConfig, AggregatorConfig, HumanConfig, ToolConfig, OutputField } from '@/types/pipeline';
-import { MODEL_LABELS } from '@/types/pipeline';
+import { MODEL_LABELS, MODELS_WITH_THINKING } from '@/types/pipeline';
 import { collectUpstreamSchemas } from '@/lib/pipeline';
 import PromptEditor from './PromptEditor';
 import OutputSchemaEditor from './OutputSchemaEditor';
@@ -163,12 +163,29 @@ export default function NodeDetail() {
 
             <Field label="Max tokens">
               <input
-                type="number" min={64} max={32768} step={64}
+                type="number" min={64} max={1048576} step={64}
                 value={draft.agentConfig.maxTokens}
                 onChange={(e) => setAgent({ maxTokens: parseInt(e.target.value) })}
                 className="input-airtable"
               />
             </Field>
+
+            {MODELS_WITH_THINKING.has(draft.agentConfig.model) && (
+              <Field
+                label="Thinking budget"
+                hint="Reasoning-token allocation for native-thinking Gemini models. Controls how much chain-of-thought the model produces internally before its visible answer."
+              >
+                <input
+                  type="number" min={0} max={524288} step={1024}
+                  value={draft.agentConfig.thinkingBudget ?? 0}
+                  onChange={(e) =>
+                    setAgent({ thinkingBudget: parseInt(e.target.value) || undefined })
+                  }
+                  className="input-airtable"
+                  placeholder="e.g. 32768"
+                />
+              </Field>
+            )}
 
             <Field label="System prompt">
               <PromptEditor

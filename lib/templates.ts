@@ -1,4 +1,11 @@
 import type { Pipeline, PipelineTemplate, FlowEdge } from '@/types/pipeline';
+import {
+  SOLVER_PROMPT,
+  GRADER_PROMPT,
+  CONJECTURE_EXTRACTOR_PROMPT,
+  CONJECTURE_PARSER_PROMPT,
+  QUALITY_CHECKER_PROMPT,
+} from './templates/momusPrompts';
 
 const edge = (
   id: string,
@@ -9,164 +16,376 @@ const edge = (
 
 // ─── Momus IMO Solver ─────────────────────────────────────────────────────────
 
+// Faithfully mirrors the real Momus pipeline at github.com/princeton-pli/momus-imo-solver.
+//
+// Phase 1 — Solver-Grader Loop (Steps 1-5):
+//   K=4 parallel solvers → grade each → pick highest-scoring →
+//   if grade >= 5: proceed; else loop back via feedback injection
+//   (max_solver_grader_rounds = 2)
+// Outer loop (Phase 2 + Phase 3, max_outer_loops = 3):
+//   Phase 2 — Extraction & Recursive Verification (Steps 6-8):
+//     conjecture_extractor → conjecture_parser → quality_checker →
+//     recursive verifier (proves each conjecture, accumulates lemmas)
+//   Phase 3 — Integration & Final Solving (Steps 9-11):
+//     K=5 final solvers (with proven lemmas) → grade → pick best →
+//     if grade == 7: Rule 2 verification; else loop back to Phase 2
+// Rule 2 — Triple-grader verification of perfect scores
+//
+// All system prompts are copied verbatim from imo_solver/prompts/momus_prompts.yaml
+// (with a small JSON tail appended on the grader/extractor for AgentForge runtime).
+// All model IDs, temperatures, max_tokens, and thinking_budgets match
+// imo_solver/config/momus_config.yaml exactly.
+
 const MOMUS: Pipeline = {
   id: 'momus-imo-solver',
   name: 'Momus IMO Solver',
   description:
-    'Multi-agent iterative pipeline for solving International Mathematical Olympiad problems. Uses parallel solvers, grading, conjecture extraction, and a final synthesis step.',
+    'Princeton-PLI Momus pipeline: dialectic solving + Council-of-Graders evaluation, with feedback injection, conjecture extraction & recursive verification, final lemma-augmented solving, and Rule 2 triple verification of perfect scores. Uses Gemini 2.5 Pro/Flash native-thinking models throughout.',
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   edges: [
-    edge('e1', 'input', 'outerLoop'),
-    edge('e2', 'outerLoop', 'parallelSolvers'),
+    // Phase 1 — Solver-Grader Loop
+    edge('e1', 'input', 'phase1Loop'),
+    edge('e2', 'phase1Loop', 'parallelSolvers'),
     edge('e3', 'parallelSolvers', 'solver', { animated: true }),
     edge('e4', 'solver', 'grader'),
-    edge('e5', 'grader', 'bestSolver'),
-    edge('e5b', 'bestSolver', 'gradeDecision'),
-    edge('e6', 'gradeDecision', 'conjectureExtractor', {
+    edge('e5', 'grader', 'bestSolverP1'),
+    edge('e6', 'bestSolverP1', 'phase1Decision'),
+    edge('e7', 'phase1Decision', 'outerLoop', {
       sourceHandle: 'true',
-      label: 'Threshold met',
+      label: 'grade ≥ 5',
       animated: true,
       style: { stroke: '#16a34a' },
     }),
-    edge('e7', 'gradeDecision', 'parallelSolvers', {
+    edge('e8', 'phase1Decision', 'parallelSolvers', {
       sourceHandle: 'false',
-      label: 'Retry',
+      label: 'feedback injection',
       animated: true,
       style: { stroke: '#d97706' },
     }),
-    edge('e8', 'conjectureExtractor', 'parser'),
-    edge('e9', 'parser', 'finalSolver'),
-    edge('e10', 'finalSolver', 'output'),
+
+    // Outer loop entry → Phase 2
+    edge('e9', 'outerLoop', 'conjectureExtractor'),
+
+    // Phase 2 — Extraction & Verification
+    edge('e10', 'conjectureExtractor', 'conjectureParser'),
+    edge('e11', 'conjectureParser', 'qualityChecker'),
+    edge('e12', 'qualityChecker', 'recursiveVerifier'),
+
+    // Phase 3 — Final solving
+    edge('e13', 'recursiveVerifier', 'finalParallelSolvers'),
+    edge('e14', 'finalParallelSolvers', 'finalSolver', { animated: true }),
+    edge('e15', 'finalSolver', 'finalGrader'),
+    edge('e16', 'finalGrader', 'finalBestPick'),
+    edge('e17', 'finalBestPick', 'finalDecision'),
+
+    edge('e18', 'finalDecision', 'rule2Parallel', {
+      sourceHandle: 'true',
+      label: 'grade == 7',
+      animated: true,
+      style: { stroke: '#16a34a' },
+    }),
+    edge('e19', 'finalDecision', 'outerLoop', {
+      sourceHandle: 'false',
+      label: 'next outer iter.',
+      animated: true,
+      style: { stroke: '#d97706' },
+    }),
+
+    // Rule 2 — Triple verification
+    edge('e20', 'rule2Parallel', 'rule2Grader', { animated: true }),
+    edge('e21', 'rule2Grader', 'rule2Vote'),
+    edge('e22', 'rule2Vote', 'ruleCheck'),
+    edge('e23', 'ruleCheck', 'output', {
+      sourceHandle: 'true',
+      label: 'unanimous 7/7',
+      animated: true,
+      style: { stroke: '#16a34a' },
+    }),
+    edge('e24', 'ruleCheck', 'outerLoop', {
+      sourceHandle: 'false',
+      label: 'verification failed',
+      animated: true,
+      style: { stroke: '#d97706' },
+    }),
   ],
   nodes: [
-    { id: 'input', type: 'input', position: { x: 150, y: 40 }, data: { label: 'Math Problem', description: 'IMO competition problem statement' } },
     {
-      id: 'outerLoop', type: 'loop', position: { x: 150, y: 160 },
+      id: 'input', type: 'input', position: { x: 200, y: 40 },
+      data: { label: 'Math Problem', description: 'IMO competition problem statement' },
+    },
+
+    // ── Phase 1 ──────────────────────────────────────────────────────────
+    {
+      id: 'phase1Loop', type: 'loop', position: { x: 200, y: 160 },
       data: {
-        label: 'Refinement Loop', description: 'Outer iteration over solve–grade cycle',
-        loopConfig: { maxIterations: 3, breakCondition: '{{grader.score}} >= 0.95' },
+        label: 'Phase 1 · Solver-Grader Loop',
+        description: 'Steps 1-5. max_solver_grader_rounds = 2. Exit when max grade ≥ min_grade_for_phase2 (5).',
+        loopConfig: { maxIterations: 2, breakCondition: '{{grader.grade}} >= 5' },
       },
     },
     {
-      id: 'parallelSolvers', type: 'parallel', position: { x: 150, y: 310 },
+      id: 'parallelSolvers', type: 'parallel', position: { x: 200, y: 310 },
       data: {
-        label: 'Parallel Solvers', description: 'K independent solution attempts',
-        parallelConfig: { numParallel: 4, label: 'solvers' },
+        label: 'Parallel Solvers',
+        description: 'Step 1: K=4 parallel initial-solving sessions (num_parallel_solvers).',
+        parallelConfig: { numParallel: 4, label: 'solver sessions' },
       },
     },
     {
-      id: 'solver', type: 'llm_agent', position: { x: 150, y: 470 },
+      id: 'solver', type: 'llm_agent', position: { x: 200, y: 470 },
       data: {
-        label: 'Solver Agent', description: 'Attempts a full proof of the problem',
+        label: 'Solver (Dialectic Engine)',
+        description: 'Council of Architects + Momus + Veritas + Chief Architect. Multi-persona dialectic with lazy-semantics censor and gauntlet critique.',
         agentConfig: {
-          role: 'solver', model: 'claude-sonnet-4-6', temperature: 0.7, maxTokens: 4096,
-          systemPrompt: `You are a world-class mathematical problem solver specializing in International Mathematical Olympiad (IMO) competition problems.
-
-Your task is to solve the given mathematical problem with complete rigor and clarity.
-
-Guidelines:
-- Begin with a clear problem analysis and identify key mathematical structures
-- Explore multiple solution approaches before committing to one
-- Present your solution step-by-step with rigorous justification
-- Highlight non-obvious insights and verify edge cases
-
-Output your solution in LaTeX-compatible mathematical notation.`,
+          role: 'solver',
+          model: 'gemini-2.5-pro-native',
+          temperature: 0.6,
+          maxTokens: 65536,
+          thinkingBudget: 32768,
+          systemPrompt: SOLVER_PROMPT,
         },
       },
     },
     {
-      id: 'grader', type: 'llm_agent', position: { x: 150, y: 640 },
+      id: 'grader', type: 'llm_agent', position: { x: 200, y: 640 },
       data: {
-        label: 'Grader Agent', description: 'Evaluates solution correctness and rigor',
+        label: 'Grader (Inquisitorial Logic)',
+        description: 'Step 2: Council of Graders — Inquisitor + Architect + Advocatus Diaboli + Chief Grader. Outputs Final Grade on 0-7 scale (5 disallowed).',
         agentConfig: {
-          role: 'grader', model: 'claude-sonnet-4-6', temperature: 0.2, maxTokens: 1024,
-          systemPrompt: `You are a rigorous mathematical solution evaluator for IMO-level competition mathematics.
-
-Evaluate the provided solution on:
-- Correctness: Is the mathematical reasoning valid?
-- Completeness: Are all cases handled?
-- Rigor: Are all steps justified?
-- Insight: Is there deep mathematical understanding?
-
-Return JSON: { "score": float (0-1), "verdict": "correct"|"partial"|"incorrect", "feedback": string, "key_insights": string[], "missing_steps": string[] }`,
+          role: 'grader',
+          model: 'gemini-2.5-pro-native',
+          temperature: 0.1,
+          maxTokens: 65536,
+          thinkingBudget: 32768,
+          systemPrompt: GRADER_PROMPT,
           outputSchema: [
-            { name: 'score', type: 'number', description: 'Overall quality score in [0, 1]' },
-            { name: 'verdict', type: 'enum', description: 'Categorical judgment', enumValues: ['correct', 'partial', 'incorrect'] },
-            { name: 'feedback', type: 'string', description: 'Free-form written critique' },
-            { name: 'key_insights', type: 'array', description: 'List of identified insights' },
-            { name: 'missing_steps', type: 'array', description: 'List of steps not yet justified' },
+            { name: 'grade', type: 'number', description: 'Final grade on 0-7 scale (5 disallowed by rubric)' },
+            { name: 'verdict', type: 'string', description: 'One-sentence summary' },
+            { name: 'areas_for_improvement', type: 'array', description: 'List of slips & fallacies' },
+            { name: 'scaffolding_questions', type: 'array', description: '3-5 questions building intuition for missing concepts' },
           ],
         },
       },
     },
     {
-      id: 'bestSolver', type: 'aggregator', position: { x: 150, y: 810 },
+      id: 'bestSolverP1', type: 'aggregator', position: { x: 200, y: 810 },
       data: {
-        label: 'Pick Best Solution',
-        description: 'From the K parallel solver-grader pairs, keep the one with the highest score',
-        aggregatorConfig: { strategy: 'best', selectionCriteria: '{{grader.score}}' },
+        label: 'Pick Best of K',
+        description: 'From the 4 parallel solver-grader pairs, keep the one with the highest grade.',
+        aggregatorConfig: { strategy: 'best', selectionCriteria: '{{grader.grade}}' },
       },
     },
     {
-      id: 'gradeDecision', type: 'decision', position: { x: 150, y: 950 },
+      id: 'phase1Decision', type: 'decision', position: { x: 200, y: 950 },
       data: {
-        label: 'Grade Check', description: 'Has the best solution reached the quality threshold?',
-        decisionConfig: { condition: '{{grader.score}} >= 0.8', trueLabel: 'Threshold Met', falseLabel: 'Retry' },
+        label: 'Phase 1 Gate',
+        description: 'Step 5 early-exit check. ≥5 proceeds; else inject grader feedback into solver sessions and re-run (Step 3 + 4).',
+        decisionConfig: { condition: '{{grader.grade}} >= 5', trueLabel: 'Proceed', falseLabel: 'Inject feedback' },
       },
     },
+
+    // ── Outer loop (Phase 2 + 3) ─────────────────────────────────────────
     {
-      id: 'conjectureExtractor', type: 'llm_agent', position: { x: 530, y: 1100 },
+      id: 'outerLoop', type: 'loop', position: { x: 600, y: 160 },
       data: {
-        label: 'Conjecture Extractor', description: 'Synthesizes key insights from all partial solutions',
+        label: 'Outer Loop · Phase 2 + 3',
+        description: 'max_outer_loops = 3. Iterate Phase 2 + Phase 3, accumulating proven lemmas across iterations. Exit on perfect score (verified by Rule 2).',
+        loopConfig: { maxIterations: 3, breakCondition: '{{finalGrader.grade}} == 7' },
+      },
+    },
+
+    // ── Phase 2: Extraction & Verification ───────────────────────────────
+    {
+      id: 'conjectureExtractor', type: 'llm_agent', position: { x: 600, y: 310 },
+      data: {
+        label: 'Conjecture Extractor',
+        description: 'Step 6: From top num_top_solutions=2 partial proofs, extract a minimal set of self-contained conjectures whose proof would close the gaps.',
         agentConfig: {
-          role: 'conjecture_extractor', model: 'claude-opus-4-7', temperature: 0.5, maxTokens: 2048,
-          systemPrompt: `You are a mathematical insight synthesizer. Given multiple solution attempts at varying levels of completeness, extract the most promising conjectures, lemmas, and key ideas.
-
-For each insight:
-- State it precisely in mathematical terms
-- Cite supporting evidence from solution attempts
-- Rate confidence (high/medium/low)
-- Explain how it could contribute to a complete proof
-
-Prioritize insights appearing across multiple attempts or representing genuine mathematical depth.`,
+          role: 'conjecture_extractor',
+          model: 'gemini-2.5-pro-native',
+          temperature: 0.3,
+          maxTokens: 65536,
+          thinkingBudget: 32768,
+          systemPrompt: CONJECTURE_EXTRACTOR_PROMPT,
+          outputSchema: [
+            { name: 'conjectures', type: 'array', description: 'Self-contained mathematical statements' },
+            { name: 'negations', type: 'array', description: 'Negation of each conjecture' },
+            { name: 'proof', type: 'string', description: 'Rigorous proof assuming the conjectures' },
+          ],
         },
       },
     },
     {
-      id: 'parser', type: 'llm_agent', position: { x: 530, y: 1270 },
+      id: 'conjectureParser', type: 'llm_agent', position: { x: 600, y: 480 },
       data: {
-        label: 'Parser Agent', description: 'Formats and deduplicates extracted conjectures',
+        label: 'Conjecture Parser',
+        description: 'Lightweight Flash parse pass: re-extract conjectures, negations, and proof into strict JSON for downstream consumption.',
         agentConfig: {
-          role: 'parser', model: 'claude-haiku-4-5-20251001', temperature: 0.1, maxTokens: 1024,
-          systemPrompt: `You are a mathematical content formatter. Transform raw extracted conjectures into a clean, structured document:
-
-1. Organize insights by mathematical relevance
-2. Remove duplicates
-3. State each insight with proper mathematical notation
-4. Order from foundational to advanced
-
-Output: clean markdown with LaTeX math expressions.`,
+          role: 'conjecture_parser',
+          model: 'gemini-2.5-flash-native',
+          temperature: 0.0,
+          maxTokens: 16384,
+          systemPrompt: CONJECTURE_PARSER_PROMPT,
+          outputSchema: [
+            { name: 'conjectures', type: 'array' },
+            { name: 'negations', type: 'array' },
+            { name: 'proof', type: 'string' },
+          ],
         },
       },
     },
     {
-      id: 'finalSolver', type: 'llm_agent', position: { x: 530, y: 1440 },
+      id: 'qualityChecker', type: 'llm_agent', position: { x: 600, y: 640 },
       data: {
-        label: 'Final Solver', description: 'Synthesizes all insights into a complete proof',
+        label: 'Quality Checker',
+        description: 'Step 7: For each (conjecture, negation) pair, verify both are fully self-contained (no references to original problem context).',
         agentConfig: {
-          role: 'final_solver', model: 'claude-opus-4-7', temperature: 0.5, maxTokens: 8192,
-          systemPrompt: `You are a master mathematician synthesizing insights into a complete IMO solution.
-
-You have:
-- The original problem statement
-- Curated conjectures and lemmas from prior solution attempts
-
-Your task: Produce the definitive, complete, elegant solution by selecting the most promising approach, filling in missing steps, and writing a rigorous proof that meets IMO standards.`,
+          role: 'quality_checker',
+          model: 'gemini-2.5-flash-native',
+          temperature: 0.0,
+          maxTokens: 8192,
+          systemPrompt: QUALITY_CHECKER_PROMPT,
+          outputSchema: [
+            { name: 'verdict', type: 'enum', description: 'PASS or FAIL', enumValues: ['PASS', 'FAIL'] },
+            { name: 'reason', type: 'string' },
+          ],
         },
       },
     },
-    { id: 'output', type: 'output', position: { x: 530, y: 1600 }, data: { label: 'Final Solution', description: 'Complete, rigorous mathematical proof' } },
+    {
+      id: 'recursiveVerifier', type: 'llm_agent', position: { x: 600, y: 800 },
+      data: {
+        label: 'Recursive Verifier',
+        description: 'Step 8: Batch-solve each validated conjecture (and its negation) via a fresh solver+grader sub-pipeline, accumulate those graded ≥ conjecture_grade_threshold (5) as proven lemmas.',
+        agentConfig: {
+          role: 'recursive_verifier',
+          model: 'gemini-2.5-pro-native',
+          temperature: 0.6,
+          maxTokens: 65536,
+          thinkingBudget: 32768,
+          systemPrompt:
+            "You are a recursive verifier. For each conjecture passed in, run a fresh dialectic solver + Council-of-Graders cycle in parallel. Accept the conjecture as a proven lemma only if its grade reaches the conjecture_grade_threshold AND its negation cannot be proven. Output the list of proven lemmas as JSON: {\"proven_lemmas\": [{\"conjecture\": str, \"proof\": str, \"grade\": int}]}.",
+          outputSchema: [
+            { name: 'proven_lemmas', type: 'array', description: 'List of {conjecture, proof, grade} entries that passed verification' },
+          ],
+        },
+      },
+    },
+
+    // ── Phase 3: Final Solving ──────────────────────────────────────────
+    {
+      id: 'finalParallelSolvers', type: 'parallel', position: { x: 600, y: 970 },
+      data: {
+        label: 'Final Parallel Solvers',
+        description: 'Step 10: num_final_parallel_solvers = 5. Solve the original problem assuming all proven lemmas plus references to previous solutions.',
+        parallelConfig: { numParallel: 5, label: 'lemma-augmented solvers' },
+      },
+    },
+    {
+      id: 'finalSolver', type: 'llm_agent', position: { x: 600, y: 1130 },
+      data: {
+        label: 'Final Solver',
+        description: 'Same dialectic engine as Phase 1, but now with proven lemmas as Additional Materials (no longer "unverified hints").',
+        agentConfig: {
+          role: 'solver',
+          model: 'gemini-2.5-pro-native',
+          temperature: 0.6,
+          maxTokens: 65536,
+          thinkingBudget: 32768,
+          systemPrompt: SOLVER_PROMPT,
+        },
+      },
+    },
+    {
+      id: 'finalGrader', type: 'llm_agent', position: { x: 600, y: 1300 },
+      data: {
+        label: 'Final Grader',
+        description: 'Step 11: Same Council-of-Graders rubric as Phase 1, applied to the final lemma-augmented solutions.',
+        agentConfig: {
+          role: 'final_grader',
+          model: 'gemini-2.5-pro-native',
+          temperature: 0.1,
+          maxTokens: 65536,
+          thinkingBudget: 32768,
+          systemPrompt: GRADER_PROMPT,
+          outputSchema: [
+            { name: 'grade', type: 'number', description: '0-7 scale' },
+            { name: 'verdict', type: 'string' },
+            { name: 'areas_for_improvement', type: 'array' },
+            { name: 'scaffolding_questions', type: 'array' },
+          ],
+        },
+      },
+    },
+    {
+      id: 'finalBestPick', type: 'aggregator', position: { x: 600, y: 1470 },
+      data: {
+        label: 'Pick Best Final',
+        description: 'From the 5 lemma-augmented solver-grader pairs, keep the highest-graded one.',
+        aggregatorConfig: { strategy: 'best', selectionCriteria: '{{final_grader.grade}}' },
+      },
+    },
+    {
+      id: 'finalDecision', type: 'decision', position: { x: 600, y: 1610 },
+      data: {
+        label: 'Perfect Score?',
+        description: 'success_threshold = 7. Only a perfect 7/7 triggers Rule 2 verification; anything less goes back through the outer loop with the new lemmas accumulated.',
+        decisionConfig: { condition: '{{final_grader.grade}} == 7', trueLabel: 'Verify', falseLabel: 'Iterate' },
+      },
+    },
+
+    // ── Rule 2: Triple Verification ─────────────────────────────────────
+    {
+      id: 'rule2Parallel', type: 'parallel', position: { x: 1000, y: 1610 },
+      data: {
+        label: 'Rule 2 · Triple Verification',
+        description: 'rule2_verification_count = 3 independent grader sessions, each freshly seeing the candidate solution.',
+        parallelConfig: { numParallel: 3, label: 'independent verifiers' },
+      },
+    },
+    {
+      id: 'rule2Grader', type: 'llm_agent', position: { x: 1000, y: 1770 },
+      data: {
+        label: 'Rule 2 Grader',
+        description: 'Re-grades from scratch with no shared context across the 3 verifiers — each must independently arrive at 7/7.',
+        agentConfig: {
+          role: 'rule2_grader',
+          model: 'gemini-2.5-pro-native',
+          temperature: 0.1,
+          maxTokens: 65536,
+          thinkingBudget: 32768,
+          systemPrompt: GRADER_PROMPT,
+          outputSchema: [
+            { name: 'grade', type: 'number', description: '0-7 scale' },
+            { name: 'verdict', type: 'string' },
+            { name: 'areas_for_improvement', type: 'array' },
+            { name: 'scaffolding_questions', type: 'array' },
+          ],
+        },
+      },
+    },
+    {
+      id: 'rule2Vote', type: 'aggregator', position: { x: 1000, y: 1940 },
+      data: {
+        label: 'Vote on Grade',
+        description: 'Majority vote on the verifiers\' grades. Real Momus requires ALL three to give 7/7 (this template uses majority — tighten by inspecting individual outputs in the runtime).',
+        aggregatorConfig: { strategy: 'vote', selectionCriteria: '{{rule2_grader.grade}}' },
+      },
+    },
+    {
+      id: 'ruleCheck', type: 'decision', position: { x: 1000, y: 2080 },
+      data: {
+        label: 'Unanimous 7/7?',
+        description: 'Rule 2: only succeed if the majority verifier vote is 7/7. Otherwise the candidate is treated as a high-quality but unverified solution and the outer loop continues.',
+        decisionConfig: { condition: '{{rule2_grader.grade}} == 7', trueLabel: 'SUCCESS', falseLabel: 'Continue iter.' },
+      },
+    },
+
+    {
+      id: 'output', type: 'output', position: { x: 1000, y: 2220 },
+      data: { label: 'Verified Solution', description: 'Final IMO solution with Rule 2 triple-verified perfect grade.' },
+    },
   ],
 };
 
