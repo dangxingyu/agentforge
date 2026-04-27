@@ -357,10 +357,17 @@ const PIPELINE_DESIGN_QUESTIONS: FormQuestion[] = [
     id: 'model',
     type: 'radio',
     label: 'Primary model tier?',
+    // Values must be valid registry ids from `lib/models.ts` so the
+    // pipeline Claude generates is runnable. The previous Haiku entry
+    // used the Anthropic API string ("claude-haiku-4-5-20251001"),
+    // which isn't a registry id and would fail with UnknownModel at
+    // run time.
     options: [
-      { label: 'Sonnet (fast & capable)', value: 'claude-sonnet-4-6' },
-      { label: 'Opus (maximum quality)', value: 'claude-opus-4-7' },
-      { label: 'Haiku (fastest, cost-efficient)', value: 'claude-haiku-4-5-20251001' },
+      { label: 'Claude Sonnet 4.6 (balanced default)', value: 'claude-sonnet-4-6' },
+      { label: 'Claude Opus 4.7 (maximum quality)', value: 'claude-opus-4-7' },
+      { label: 'Claude Haiku 4.5 (fastest / cheapest)', value: 'claude-haiku-4-5' },
+      { label: 'Gemini 2.5 Pro (via OpenRouter)', value: 'gemini-2.5-pro' },
+      { label: 'GPT-5 (frontier OpenAI)', value: 'gpt-5' },
       { label: 'Mixed (different models per role)', value: 'mixed' },
     ],
   },

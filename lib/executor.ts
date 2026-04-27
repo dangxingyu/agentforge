@@ -525,13 +525,58 @@ export class PipelineExecutor {
         return { value: branches[0]?.output, winnerIndex: 0 };
 
       case 'best': {
+        // Validate the criterion the same way decision/loop conditions
+        // are validated, against the FIRST branch's context (all branches
+        // share the same upstream schema, so checking one is sufficient).
+        // Without this, a typo in `selectionCriteria` would silently fall
+        // back to branch[0] instead of erroring loudly.
+        this.validateAggregatorCriterion(cfg.selectionCriteria, branches, node.id);
         const winner = pickBest(branches, cfg);
         return { value: winner.branch.output, winnerIndex: winner.index };
       }
 
       case 'vote': {
+        this.validateAggregatorCriterion(cfg.selectionCriteria, branches, node.id);
         const winner = pickByVote(branches, cfg);
         return { value: winner.branch.output, winnerIndex: winner.index };
+      }
+    }
+  }
+
+  /** Same syntax+ref check `evaluate()` does for decision/loop conditions,
+   * scoped to a branch context. We require the criterion to resolve in
+   * EVERY branch — if even one branch is missing the field, that's a bug
+   * in the upstream agent's prompt or outputSchema and it'd silently
+   * skew the aggregation. Loud failure beats wrong answer. */
+  private validateAggregatorCriterion(
+    expr: string | undefined,
+    branches: BranchResult[],
+    nodeId: string
+  ) {
+    if (!expr || !expr.trim()) {
+      throw new ExecutionError(
+        `Aggregator with strategy 'best'/'vote' requires a non-empty selectionCriteria — set it in the node detail panel.`,
+        nodeId
+      );
+    }
+    const parsed = parseExpression(expr);
+    if (parsed.errors.length > 0) {
+      const detail = parsed.errors.map((e) => `${e.message} at ${e.pos}`).join('; ');
+      throw new ExecutionError(
+        `Invalid selectionCriteria "${expr}": ${detail}`,
+        nodeId
+      );
+    }
+    const refs = collectRefs(parsed.ast);
+    for (let i = 0; i < branches.length; i++) {
+      const ctx = branches[i].context;
+      const missing = refs.filter((r) => !(`${r.role}.${r.field}` in ctx));
+      if (missing.length > 0) {
+        const list = missing.map((r) => `{{${r.role}.${r.field}}}`).join(', ');
+        throw new ExecutionError(
+          `Aggregator selectionCriteria references undefined variable(s) in branch ${i}: ${list}. The upstream agent didn't produce these — check its outputSchema and JSON output.`,
+          nodeId
+        );
       }
     }
   }

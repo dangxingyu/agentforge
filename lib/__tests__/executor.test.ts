@@ -351,6 +351,63 @@ describe('PipelineExecutor — parallel + aggregator', () => {
     });
     await expect(exec.execute('x')).rejects.toThrow(/no downstream aggregator/);
   });
+
+  it('best strategy errors when selectionCriteria is empty', async () => {
+    // Regression guard: pickBest used to fall back to branch[0] silently
+    // when the criterion was missing. It should error loudly so a typo
+    // in the spec doesn't silently skew the aggregation.
+    const pipeline = makePipeline(
+      [
+        input(),
+        parallel('fan', 2),
+        agent('s', 'solver', 'solve'),
+        aggregator('agg', 'best'), // no selectionCriteria
+        output(),
+      ],
+      [edge('input', 'fan'), edge('fan', 's'), edge('s', 'agg'), edge('agg', 'output')]
+    );
+    const exec = new PipelineExecutor(pipeline, {
+      llm: mockLLM(() => '{"score": 0.5}'),
+      onEvent: () => {},
+    });
+    await expect(exec.execute('x')).rejects.toThrow(/non-empty selectionCriteria/);
+  });
+
+  it('best strategy errors when selectionCriteria refs an undeclared field', async () => {
+    const pipeline = makePipeline(
+      [
+        input(),
+        parallel('fan', 2),
+        agent('s', 'solver', 'solve', [{ name: 'score', type: 'number' }]),
+        aggregator('agg', 'best', '{{solver.confidence}}'), // typo!
+        output(),
+      ],
+      [edge('input', 'fan'), edge('fan', 's'), edge('s', 'agg'), edge('agg', 'output')]
+    );
+    const exec = new PipelineExecutor(pipeline, {
+      llm: mockLLM(() => '{"score": 0.5}'),
+      onEvent: () => {},
+    });
+    await expect(exec.execute('x')).rejects.toThrow(/undefined variable/);
+  });
+
+  it('best strategy errors when selectionCriteria has a syntax error', async () => {
+    const pipeline = makePipeline(
+      [
+        input(),
+        parallel('fan', 2),
+        agent('s', 'solver', 'solve', [{ name: 'score', type: 'number' }]),
+        aggregator('agg', 'best', '{{solver.score}} === 0.5'), // === unsupported
+        output(),
+      ],
+      [edge('input', 'fan'), edge('fan', 's'), edge('s', 'agg'), edge('agg', 'output')]
+    );
+    const exec = new PipelineExecutor(pipeline, {
+      llm: mockLLM(() => '{"score": 0.5}'),
+      onEvent: () => {},
+    });
+    await expect(exec.execute('x')).rejects.toThrow(/Invalid selectionCriteria/);
+  });
 });
 
 describe('PipelineExecutor — loop revisit cap', () => {

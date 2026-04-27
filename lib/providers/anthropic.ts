@@ -30,10 +30,18 @@ export const anthropicProvider: LLMProvider = {
     };
 
     if (req.thinkingBudget && req.thinkingBudget > 0 && req.model.supportsThinking) {
-      // Anthropic's extended-thinking API requires temperature=1.
+      // Anthropic's extended-thinking API requires:
+      //   1. temperature == 1
+      //   2. budget_tokens >= 1024
+      //   3. budget_tokens < max_tokens (so SOME tokens are left for the
+      //      visible answer; the SDK rejects budget == max_tokens)
+      // The `Math.max(1024, ...)` and `Math.max(1, ...)` floor protect
+      // against pathological inputs (e.g. `maxTokens: 0` from a malformed
+      // import — UI's `min={64}` only guards typed entry).
+      const headroom = Math.max(1, req.maxTokens - 1);
       params.thinking = {
         type: 'enabled',
-        budget_tokens: Math.min(req.thinkingBudget, req.maxTokens - 1),
+        budget_tokens: Math.max(1024, Math.min(req.thinkingBudget, headroom)),
       };
       params.temperature = 1;
     }

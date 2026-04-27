@@ -1,5 +1,18 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { NextRequest, NextResponse } from 'next/server';
+import { MODELS } from '@/lib/models';
+
+/** Build a model registry summary the chat assistant can quote when
+ * asking the user "what model should X use?" or when emitting a pipeline.
+ * Generated at module load (server start) — cheap, and it stays in sync
+ * with `lib/models.ts` automatically. */
+const MODEL_REGISTRY_DOC = MODELS.map((m) => {
+  const tags = [
+    m.tier,
+    m.supportsThinking ? 'reasoning' : null,
+  ].filter(Boolean).join(', ');
+  return `  - "${m.id}" (${m.provider}, ${tags})${m.description ? ` — ${m.description}` : ''}`;
+}).join('\n');
 
 const SYSTEM_PROMPT = `You are AgentForge, an expert AI system architect specializing in LLM agent pipeline design. Your job is to help users design powerful, production-grade agent pipelines.
 
@@ -58,6 +71,24 @@ which lets a downstream decision use \`{{grader.score}} >= 0.8\`.
 For aggregator nodes with \`strategy: "best"\` or \`"vote"\`, the
 \`selectionCriteria\` must be a single \`{{role.field}}\` reference (the
 field whose value picks the winning parallel instance).
+
+## Available models — IMPORTANT
+
+The \`agentConfig.model\` field on every llm_agent MUST be one of these
+registry IDs. Pick by tier (frontier / mid / fast / reasoning / open)
+and by which provider's API key the user has configured. If the user
+hasn't said, default to "claude-sonnet-4-6" (balanced, requires an
+Anthropic key).
+
+${MODEL_REGISTRY_DOC}
+
+Custom models: a user can paste any OpenRouter slug into Settings, then
+reference it as \`"or:provider/slug"\` (e.g. \`"or:mistralai/mistral-large-2411"\`).
+Don't invent these — only use \`or:\` ids that the user explicitly named.
+
+For models that support reasoning ("supportsThinking" / "reasoning" tier),
+you may also set \`thinkingBudget\` (a positive integer, ≤ \`maxTokens\`)
+to enable extended-thinking mode.
 
 ## Your conversation flow:
 1. When user describes a pipeline, ask 2-3 focused clarifying questions about the key design decisions (e.g., "How many parallel solvers?", "What's the quality threshold?", "Which models should handle each role?")

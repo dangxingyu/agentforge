@@ -17,11 +17,36 @@ const noopStorage: Storage = {
 };
 
 /** Wraps localStorage so QuotaExceededError doesn't tank the whole app —
- * we log a warning and continue. Persistence becomes a best-effort feature. */
+ * we log a warning and continue. Persistence becomes a best-effort feature.
+ *
+ * Returns a complete Storage object (with `length`, `clear`, `key` proxied
+ * through) so future debugging code or migration code that reads/writes
+ * those properties doesn't blow up — `{...ls}` spread would have dropped
+ * the inherited methods. */
 function wrapLocalStorageWithErrorHandling(ls: Storage): Storage {
   return {
-    ...ls,
-    getItem: (key) => {
+    get length() {
+      try {
+        return ls.length;
+      } catch {
+        return 0;
+      }
+    },
+    clear: () => {
+      try {
+        ls.clear();
+      } catch {
+        /* ignore */
+      }
+    },
+    key: (i: number) => {
+      try {
+        return ls.key(i);
+      } catch {
+        return null;
+      }
+    },
+    getItem: (key: string) => {
       try {
         return ls.getItem(key);
       } catch (err) {
@@ -29,17 +54,17 @@ function wrapLocalStorageWithErrorHandling(ls: Storage): Storage {
         return null;
       }
     },
-    setItem: (key, value) => {
+    setItem: (key: string, value: string) => {
       try {
         ls.setItem(key, value);
       } catch (err) {
         console.warn(
-          '[AgentForge] localStorage.setItem failed (likely over quota — your pipeline edits won\'t persist):',
+          "[AgentForge] localStorage.setItem failed (likely over quota — your pipeline edits won't persist):",
           err
         );
       }
     },
-    removeItem: (key) => {
+    removeItem: (key: string) => {
       try {
         ls.removeItem(key);
       } catch {

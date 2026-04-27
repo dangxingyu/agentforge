@@ -11,47 +11,12 @@ export type NodeKind =
   | 'input'
   | 'output';
 
-export type ModelId =
-  | 'claude-sonnet-4-6'
-  | 'claude-opus-4-7'
-  | 'claude-haiku-4-5-20251001'
-  | 'gpt-4o'
-  | 'gpt-4o-mini'
-  | 'gemini-2.5-pro'
-  | 'gemini-2.5-pro-native'
-  | 'gemini-2.5-flash-native'
-  | 'gemini-2.0-flash';
-
-export const MODEL_LABELS: Record<ModelId, string> = {
-  'claude-sonnet-4-6': 'Claude Sonnet 4.6',
-  'claude-opus-4-7': 'Claude Opus 4.7',
-  'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
-  'gpt-4o': 'GPT-4o',
-  'gpt-4o-mini': 'GPT-4o Mini',
-  'gemini-2.5-pro': 'Gemini 2.5 Pro',
-  'gemini-2.5-pro-native': 'Gemini 2.5 Pro (native thinking)',
-  'gemini-2.5-flash-native': 'Gemini 2.5 Flash (native thinking)',
-  'gemini-2.0-flash': 'Gemini 2.0 Flash',
-};
-
-export const MODEL_PROVIDERS: Record<ModelId, string> = {
-  'claude-sonnet-4-6': 'Anthropic',
-  'claude-opus-4-7': 'Anthropic',
-  'claude-haiku-4-5-20251001': 'Anthropic',
-  'gpt-4o': 'OpenAI',
-  'gpt-4o-mini': 'OpenAI',
-  'gemini-2.5-pro': 'Google',
-  'gemini-2.5-pro-native': 'Google',
-  'gemini-2.5-flash-native': 'Google',
-  'gemini-2.0-flash': 'Google',
-};
-
-/** Models that accept a `thinking_budget` (Gemini's reasoning-token allocation). */
-export const MODELS_WITH_THINKING: ReadonlySet<ModelId> = new Set<ModelId>([
-  'gemini-2.5-pro',
-  'gemini-2.5-pro-native',
-  'gemini-2.5-flash-native',
-]);
+// NB: model IDs and provider routing live in `lib/models.ts` +
+// `lib/providers/`. The old `ModelId` union / `MODEL_LABELS` /
+// `MODEL_PROVIDERS` / `MODELS_WITH_THINKING` exports were removed in
+// favor of that registry. `LLMAgentConfig.model` is now a free-form
+// `string` so adding models doesn't require a type-rebuild and so
+// custom OpenRouter slugs (`or:provider/slug`) round-trip cleanly.
 
 export type OutputFieldType = 'number' | 'string' | 'boolean' | 'enum' | 'array' | 'object';
 
