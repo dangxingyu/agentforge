@@ -118,6 +118,95 @@ describe('Map-Reduce template', () => {
   });
 });
 
+describe('Huang-Yang Sequential Verify template', () => {
+  it('exits on 5 consecutive successes (success threshold)', async () => {
+    const tpl = TEMPLATES.find((t) => t.id === 'huang-yang')!;
+    let verifyCount = 0;
+    const llm: LLMCaller = {
+      async call({ system }) {
+        // Prover / Improver / Corrector: all use prover_system_prompt
+        if (system.includes('rigorous IMO-level mathematician'))
+          return 'Proof: We claim n=2 works. By exhaustive check...';
+        // Completeness checker: "yes"
+        if (system.includes('mathematical solution assessor'))
+          return '{"verdict": "yes"}';
+        // Verifier
+        if (system.includes('meticulous IMO grader')) {
+          verifyCount++;
+          return 'Summary: The solution is correct. Detailed log: all steps verified.';
+        }
+        // Bug analyzer: always "yes" (correct) → consecutive_success increments each time
+        if (system.includes('analyzing mathematical verification'))
+          return '{"verdict": "yes"}';
+        return 'ok';
+      },
+    };
+    const exec = new PipelineExecutor(tpl.pipeline, { llm, onEvent: () => {} });
+    const result = await exec.execute('Find all primes p such that p^2 + 2 is prime.');
+    expect(typeof result).toBe('string');
+    expect(String(result).length).toBeGreaterThan(0);
+    // The verifier should have been called — the loop runs at least once before
+    // the counter accumulates enough to trigger the break condition.
+    expect(verifyCount).toBeGreaterThan(0);
+  });
+
+  it('counter resets on alternating verdicts', async () => {
+    // Simulate: yes, no, yes, no, ... — neither threshold should be reached,
+    // so the loop should hit maxIterations.
+    const tpl = TEMPLATES.find((t) => t.id === 'huang-yang')!;
+    let bugAnalyzerCalls = 0;
+    const llm: LLMCaller = {
+      async call({ system }) {
+        if (system.includes('rigorous IMO-level mathematician'))
+          return 'Proof attempt...';
+        if (system.includes('mathematical solution assessor'))
+          return '{"verdict": "yes"}';
+        if (system.includes('meticulous IMO grader'))
+          return 'Verification report...';
+        if (system.includes('analyzing mathematical verification')) {
+          bugAnalyzerCalls++;
+          // Alternate: yes, no, yes, no — counter never reaches 5 or 10
+          return bugAnalyzerCalls % 2 === 1
+            ? '{"verdict": "yes"}'
+            : '{"verdict": "no"}';
+        }
+        return 'ok';
+      },
+    };
+    const exec = new PipelineExecutor(tpl.pipeline, { llm, onEvent: () => {} });
+    await exec.execute('Prove Fermat Last Theorem.');
+    // With alternating verdicts, consecutive counters never reach threshold.
+    // The loop should exhaust maxIterations (40) and eventually terminate.
+    // Bug analyzer should have been called multiple times.
+    expect(bugAnalyzerCalls).toBeGreaterThan(2);
+  });
+});
+
+describe('Parallel Divide & Resolve template', () => {
+  it('decomposes, solves in parallel, resolves conflicts', async () => {
+    const tpl = TEMPLATES.find((t) => t.id === 'parallel-divide-resolve')!;
+    let workerCalls = 0;
+    const llm: LLMCaller = {
+      async call({ system }) {
+        if (system.includes('strategic task planner'))
+          return '{"subtasks": [{"title":"A"},{"title":"B"}], "integration_notes": "merge carefully"}';
+        if (system.includes('focused subtask solver')) {
+          workerCalls++;
+          return `{"solution": "result_${workerCalls}", "assumptions": [], "conflict_risks": []}`;
+        }
+        if (system.includes('expert integrator'))
+          return '{"merged_result": "unified", "has_conflicts": false, "conflicts": [], "resolution_suggestions": []}';
+        if (system.includes('conflict mediator'))
+          return 'resolved version';
+        return 'ok';
+      },
+    };
+    const exec = new PipelineExecutor(tpl.pipeline, { llm, onEvent: () => {} });
+    await exec.execute('Design a microservices architecture.');
+    expect(workerCalls).toBe(6); // numParallel: 6
+  });
+});
+
 describe('Divide and Conquer template', () => {
   it('decomposes, solves in parallel, synthesizes', async () => {
     const tpl = TEMPLATES.find((t) => t.id === 'divide-and-conquer')!;

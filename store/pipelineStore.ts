@@ -5,6 +5,50 @@ import type { NodeChange, EdgeChange, Connection } from 'reactflow';
 import type { FlowNode, FlowEdge, NodeData, ChatMessage, DesignerPhase, Pipeline, FormQuestion } from '@/types/pipeline';
 import { getTemplate } from '@/lib/templates';
 
+// ─── Storage helpers ─────────────────────────────────────────────────────
+
+const noopStorage: Storage = {
+  length: 0,
+  clear: () => {},
+  getItem: () => null,
+  key: () => null,
+  removeItem: () => {},
+  setItem: () => {},
+};
+
+/** Wraps localStorage so QuotaExceededError doesn't tank the whole app —
+ * we log a warning and continue. Persistence becomes a best-effort feature. */
+function wrapLocalStorageWithErrorHandling(ls: Storage): Storage {
+  return {
+    ...ls,
+    getItem: (key) => {
+      try {
+        return ls.getItem(key);
+      } catch (err) {
+        console.warn('[AgentForge] localStorage.getItem failed:', err);
+        return null;
+      }
+    },
+    setItem: (key, value) => {
+      try {
+        ls.setItem(key, value);
+      } catch (err) {
+        console.warn(
+          '[AgentForge] localStorage.setItem failed (likely over quota — your pipeline edits won\'t persist):',
+          err
+        );
+      }
+    },
+    removeItem: (key) => {
+      try {
+        ls.removeItem(key);
+      } catch {
+        /* ignore */
+      }
+    },
+  };
+}
+
 interface PipelineStore {
   nodes: FlowNode[];
   edges: FlowEdge[];
@@ -151,18 +195,32 @@ export const usePipelineStore = create<PipelineStore>()(
     {
       name: 'agentforge-pipeline-v1',
       version: 2,
-      storage: createJSONStorage(() => localStorage),
-      // Only persist the pipeline — chat is ephemeral, streaming flags
-      // should never carry across reloads, hydration flag is runtime-only.
+      // Defensive storage: localStorage may be unavailable in private mode
+      // / over quota / corrupted. Falling back to a noop keeps the app
+      // booting even when persistence is broken.
+      storage: createJSONStorage(() => {
+        if (typeof window === 'undefined') return noopStorage;
+        try {
+          const probe = '__agentforge_probe__';
+          window.localStorage.setItem(probe, probe);
+          window.localStorage.removeItem(probe);
+          return wrapLocalStorageWithErrorHandling(window.localStorage);
+        } catch {
+          return noopStorage;
+        }
+      }),
       partialize: (state) => ({
         nodes: state.nodes,
         edges: state.edges,
         pipeline: state.pipeline,
         activeTemplateId: state.activeTemplateId,
       }),
-      onRehydrateStorage: () => (state) => {
-        // Called after rehydration; mark the flag so the UI knows it's
-        // safe to decide whether to load the default template.
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.warn('[AgentForge] Failed to rehydrate pipeline state:', error);
+        }
+        // Mark hydrated regardless of error — the UI should still load
+        // (possibly with empty state) rather than block forever.
         state?._setHydrated();
       },
       migrate: (persisted, version) => {

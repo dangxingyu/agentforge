@@ -67,12 +67,16 @@ export interface OutputField {
 
 export interface LLMAgentConfig {
   role: string;
-  model: ModelId;
+  /** Model id from `lib/models.ts`'s registry, OR a custom OpenRouter
+   * slug prefixed with `or:` (added by users in Settings). Free-form
+   * string so future-added models don't require a type-check rebuild. */
+  model: string;
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
-  /** Reasoning-token allocation for models that support it (Gemini's
-   * `thinking_budget`). Ignored for other providers. */
+  /** Reasoning-token allocation for models that support it (Anthropic
+   * extended thinking, Gemini reasoning, OpenAI o-series). Ignored for
+   * providers that don't support it. */
   thinkingBudget?: number;
   /**
    * Declared output schema. Downstream decision/loop nodes reference these
@@ -98,9 +102,32 @@ export interface DecisionConfig {
   falseLabel: string;
 }
 
+/**
+ * Configuration for a consecutive counter tracked by a loop node.
+ * On each re-entry, the loop evaluates `condition` against the current context.
+ * If true, `consecutiveTrue` increments and `consecutiveFalse` resets to 0 (and vice versa).
+ * The counter values are exposed in context as `{{loopRole.consecutiveTrue}}` and
+ * `{{loopRole.consecutiveFalse}}` (or custom names if `trueName`/`falseName` are set).
+ *
+ * This models the Huang-Yang verification pattern where 5 consecutive successes = SOLVED
+ * and 10 consecutive failures = GIVE UP, with each outcome resetting the other counter.
+ */
+export interface LoopCounterConfig {
+  /** Expression to evaluate each iteration (e.g. `{{bug_analyzer.verdict}} == "yes"`) */
+  condition: string;
+  /** Context variable name for the consecutive-true count (default: "consecutiveTrue") */
+  trueName?: string;
+  /** Context variable name for the consecutive-false count (default: "consecutiveFalse") */
+  falseName?: string;
+  /** Initial value for the consecutive-false counter (e.g. 1 for incomplete-solution penalty) */
+  initialFalse?: number;
+}
+
 export interface LoopConfig {
   maxIterations: number;
   breakCondition: string;
+  /** Optional consecutive counter — tracked per iteration, exposed in context. */
+  counter?: LoopCounterConfig;
 }
 
 export interface HumanConfig {

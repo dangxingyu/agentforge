@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Play,
   Square,
@@ -8,9 +8,12 @@ import {
   Loader2,
   ArrowRight,
   RotateCcw,
+  KeyRound,
 } from 'lucide-react';
 import { usePipelineStore } from '@/store/pipelineStore';
 import { useRunStore } from '@/store/runStore';
+import { useSettingsStore } from '@/store/settingsStore';
+import { resolveModel } from '@/lib/models';
 import type { ExecutionEvent } from '@/lib/executor';
 
 /**
@@ -19,11 +22,15 @@ import type { ExecutionEvent } from '@/lib/executor';
  * timeline + final output section.
  */
 export default function RunPanel({ onClose }: { onClose: () => void }) {
-  const pipeline = usePipelineStore((s) => ({
-    pipeline: s.pipeline,
-    nodes: s.nodes,
-    edges: s.edges,
-  }));
+  // Subscribe to scalar slices to avoid the Object.is-equality re-render
+  // trap (Zustand v5 returns fresh objects from object-literal selectors).
+  const pipelineMeta = usePipelineStore((s) => s.pipeline);
+  const nodes = usePipelineStore((s) => s.nodes);
+  const edges = usePipelineStore((s) => s.edges);
+
+  const apiKeys = useSettingsStore((s) => s.apiKeys);
+  const customOpenRouterModels = useSettingsStore((s) => s.customOpenRouterModels);
+
   const status = useRunStore((s) => s.status);
   const input = useRunStore((s) => s.input);
   const output = useRunStore((s) => s.output);
@@ -42,12 +49,30 @@ export default function RunPanel({ onClose }: { onClose: () => void }) {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' });
   }, [events.length]);
 
+  // Pre-flight: which providers does this pipeline need vs. which keys
+  // are configured? We surface a missing-key warning before the user
+  // hits Run rather than getting a server error mid-stream.
+  const missingProviders = useMemo(() => {
+    const needed = new Set<string>();
+    for (const n of nodes) {
+      const modelId = n.data.agentConfig?.model;
+      if (!modelId) continue;
+      const m = resolveModel(modelId, customOpenRouterModels);
+      if (m) needed.add(m.provider);
+    }
+    const missing: string[] = [];
+    for (const p of needed) {
+      if (!apiKeys[p as keyof typeof apiKeys]) missing.push(p);
+    }
+    return missing;
+  }, [nodes, apiKeys, customOpenRouterModels]);
+
   async function run() {
     const inputText = draftInput.trim();
     if (!inputText || status === 'running') return;
 
-    const fullPipeline = pipeline.pipeline
-      ? { ...pipeline.pipeline, nodes: pipeline.nodes, edges: pipeline.edges }
+    const fullPipeline = pipelineMeta
+      ? { ...pipelineMeta, nodes, edges }
       : null;
     if (!fullPipeline) return;
 
@@ -58,7 +83,12 @@ export default function RunPanel({ onClose }: { onClose: () => void }) {
       const resp = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pipeline: fullPipeline, input: inputText }),
+        body: JSON.stringify({
+          pipeline: fullPipeline,
+          input: inputText,
+          apiKeys,
+          customOpenRouterModels,
+        }),
         signal: ctrl.signal,
       });
       if (!resp.ok || !resp.body) {
@@ -138,6 +168,18 @@ export default function RunPanel({ onClose }: { onClose: () => void }) {
 
       {/* Input form */}
       <div className="px-4 pt-4 pb-3 border-b border-[#e0e2e6] space-y-2">
+        {/* Pre-flight warning when a pipeline references a model whose
+            provider key isn't configured yet. */}
+        {status !== 'running' && missingProviders.length > 0 && (
+          <div className="flex items-start gap-2 rounded-[10px] bg-[#fef4e6] border border-[#f5d7a0] px-3 py-2">
+            <KeyRound size={13} strokeWidth={2.2} className="text-[#b45309] shrink-0 mt-0.5" />
+            <p className="text-[11px] text-[#92400e] tracking-ui leading-snug">
+              Missing API key for{' '}
+              <strong className="font-semibold">{missingProviders.join(', ')}</strong>
+              . Open <em>Settings</em> in the toolbar to paste it, or change the model on the affected agent nodes.
+            </p>
+          </div>
+        )}
         <label className="block text-[10px] uppercase tracking-caption text-[rgba(4,14,32,0.55)] font-semibold">
           Input
         </label>
@@ -188,7 +230,9 @@ export default function RunPanel({ onClose }: { onClose: () => void }) {
             taken, and parallel fan-out gets a line.
           </p>
         ) : (
-          events.map((ev, i) => <EventRow key={i} event={ev} />)
+          events.map((ev, i) => (
+            <EventRow key={i} event={ev} baseline={events[0]?.timestamp ?? ev.timestamp} />
+          ))
         )}
       </div>
 
@@ -222,8 +266,8 @@ export default function RunPanel({ onClose }: { onClose: () => void }) {
 
 // ─── Event row rendering ────────────────────────────────────────────────
 
-function EventRow({ event }: { event: ExecutionEvent }) {
-  const t = relativeTime(event.timestamp);
+function EventRow({ event, baseline }: { event: ExecutionEvent; baseline: number }) {
+  const t = relativeTime(event.timestamp, baseline);
 
   switch (event.type) {
     case 'pipeline:start':
@@ -335,11 +379,10 @@ const formatOutput = (output: unknown): string => {
   }
 };
 
-const startTime = Date.now();
-function relativeTime(t: number): string {
-  // Show seconds since the panel opened, not absolute time — that's
-  // what the user cares about ("how long has this been running?").
-  const diff = (t - startTime) / 1000;
+function relativeTime(t: number, baseline: number): string {
+  // Time since run start (or panel open if no events yet) — what the user
+  // cares about ("how long has this been running?").
+  const diff = (t - baseline) / 1000;
   if (diff < 1) return `+${(diff * 1000).toFixed(0)}ms`;
   if (diff < 60) return `+${diff.toFixed(1)}s`;
   const mins = Math.floor(diff / 60);

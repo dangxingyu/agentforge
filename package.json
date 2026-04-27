@@ -2,12 +2,19 @@
   "name": "agentforge",
   "version": "0.1.0",
   "private": true,
+  "description": "Visual designer + runtime for LLM agent pipelines. Drag-and-drop canvas, live execution, multi-provider (Anthropic / OpenAI / OpenRouter).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dangxingyu/agentforge.git"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
@@ -16,11 +23,15 @@
     "codemirror": "^6.0.2",
     "lucide-react": "^1.8.0",
     "next": "16.2.4",
+    "openai": "^6.10.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "reactflow": "^11.11.4",
     "yaml": "^2.8.3",
     "zustand": "^5.0.12"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-linux-arm64-gnu": "^1.0.0-rc.17"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

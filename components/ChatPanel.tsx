@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Sparkles, Trash2, Bot, User, CheckCircle2 } from 'lucide-react';
 import { usePipelineStore } from '@/store/pipelineStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { TEMPLATES } from '@/lib/templates';
 import type { FormQuestion } from '@/types/pipeline';
 
@@ -17,8 +18,18 @@ Describe the agent pipeline you want to build — I'll ask a few clarifying ques
 Or pick a template below to get started instantly.`;
 
 export default function ChatPanel() {
-  const { messages, phase, isStreaming, addMessage, appendToLastMessage, setPhase, setStreaming, clearMessages, loadPipeline } =
-    usePipelineStore();
+  // Fine-grained subscriptions to avoid the global re-render trap.
+  const messages = usePipelineStore((s) => s.messages);
+  const phase = usePipelineStore((s) => s.phase);
+  const isStreaming = usePipelineStore((s) => s.isStreaming);
+  const addMessage = usePipelineStore((s) => s.addMessage);
+  const appendToLastMessage = usePipelineStore((s) => s.appendToLastMessage);
+  const setPhase = usePipelineStore((s) => s.setPhase);
+  const setStreaming = usePipelineStore((s) => s.setStreaming);
+  const clearMessages = usePipelineStore((s) => s.clearMessages);
+  const loadPipeline = usePipelineStore((s) => s.loadPipeline);
+  const anthropicKey = useSettingsStore((s) => s.apiKeys.anthropic);
+
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -27,10 +38,12 @@ export default function ChatPanel() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  async function send() {
-    const text = input.trim();
+  // Send is a stable callback the form-question card can call to push a
+  // synthesized user message and re-trigger the assistant.
+  const send = useCallback(async (overrideText?: string) => {
+    const text = (overrideText ?? input).trim();
     if (!text || isStreaming) return;
-    setInput('');
+    if (overrideText === undefined) setInput('');
 
     addMessage({ role: 'user', content: text });
 
@@ -50,34 +63,42 @@ export default function ChatPanel() {
       const resp = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: apiMessages }),
+        body: JSON.stringify({ messages: apiMessages, apiKey: anthropicKey }),
       });
 
       if (!resp.ok || !resp.body) throw new Error('Request failed');
 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-
-        for (const line of chunk.split('\n')) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') break;
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.type === 'text') {
-                appendToLastMessage(parsed.text);
-              } else if (parsed.type === 'pipeline') {
-                loadPipeline(parsed.pipeline);
-                setPhase('ready');
-              }
-            } catch {
-              // ignore parse errors
+      // Buffer-based SSE parsing — events end on `\n\n`, and chunks can
+      // slice through the middle of a JSON payload. Splitting on `\n`
+      // would silently drop deltas that landed across a chunk boundary.
+      let buffer = '';
+      let done = false;
+      while (!done) {
+        const { done: streamDone, value } = await reader.read();
+        if (streamDone) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split('\n\n');
+        buffer = events.pop() ?? '';
+        for (const ev of events) {
+          const line = ev.trim();
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') {
+            done = true;
+            break;
+          }
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.type === 'text') {
+              appendToLastMessage(parsed.text);
+            } else if (parsed.type === 'pipeline') {
+              loadPipeline(parsed.pipeline);
+              setPhase('ready');
             }
+          } catch {
+            // Ignore non-JSON lines
           }
         }
       }
@@ -100,7 +121,17 @@ export default function ChatPanel() {
     } finally {
       setStreaming(false);
     }
-  }
+  }, [
+    input,
+    isStreaming,
+    phase,
+    addMessage,
+    appendToLastMessage,
+    setPhase,
+    setStreaming,
+    loadPipeline,
+    anthropicKey,
+  ]);
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -170,11 +201,14 @@ export default function ChatPanel() {
                 <FormQuestionCard
                   questions={msg.formQuestions}
                   onSubmit={(answers) => {
+                    // Synthesize a preferences message and feed it back to
+                    // Claude so the conversation actually advances. Without
+                    // this, clicking Submit was a dead-end (audit P1).
                     const lines = Object.entries(answers)
                       .filter(([, v]) => (Array.isArray(v) ? v.length > 0 : v))
                       .map(([key, val]) => `${key}: ${Array.isArray(val) ? val.join(', ') : val}`);
                     if (lines.length > 0) {
-                      addMessage({ role: 'user', content: `My preferences:\n${lines.join('\n')}` });
+                      send(`My preferences:\n${lines.join('\n')}`);
                     }
                   }}
                 />
@@ -232,7 +266,8 @@ export default function ChatPanel() {
             style={{ minHeight: '42px' }}
           />
           <button
-            onClick={send}
+            type="button"
+            onClick={() => send()}
             disabled={!input.trim() || isStreaming}
             className="shrink-0 w-10 h-10 rounded-[12px] bg-[#1b61c9] hover:bg-[#1755b1] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors shadow-[0_1px_3px_rgba(45,127,249,0.28)]"
           >

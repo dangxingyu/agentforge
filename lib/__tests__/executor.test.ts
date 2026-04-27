@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { PipelineExecutor, type ExecutionEvent, type LLMCaller } from '../executor';
 import type { Pipeline, FlowNode, FlowEdge } from '@/types/pipeline';
 
@@ -354,9 +354,11 @@ describe('PipelineExecutor — parallel + aggregator', () => {
 });
 
 describe('PipelineExecutor — loop revisit cap', () => {
-  it('aborts when a loop runs past maxIterations', async () => {
+  it('gracefully exits when a loop exhausts maxIterations', async () => {
     // Build a pipeline that loops forever via a decision that always
-    // evaluates true on the back-edge.
+    // evaluates true on the back-edge.  The loop node should return
+    // the last upstream value once maxIterations is exhausted rather
+    // than throwing.
     const pipeline = makePipeline(
       [
         input(),
@@ -375,7 +377,9 @@ describe('PipelineExecutor — loop revisit cap', () => {
     );
     const llm: LLMCaller = { async call() { return '{"done": false}'; } };
     const exec = new PipelineExecutor(pipeline, { llm, onEvent: () => {} });
-    await expect(exec.execute('x')).rejects.toThrow(/exceeded.*visits/);
+    const result = await exec.execute('x');
+    // Loop exhausted maxIterations (3) and returned last upstream value.
+    expect(result).toBeDefined();
   });
 
   it('completes when the loop body breaks early', async () => {

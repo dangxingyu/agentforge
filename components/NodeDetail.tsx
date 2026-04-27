@@ -1,15 +1,15 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { X, ChevronDown } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { X, ChevronDown, Lock } from 'lucide-react';
 import { usePipelineStore } from '@/store/pipelineStore';
-import type { NodeData, ModelId, LLMAgentConfig, DecisionConfig, LoopConfig, ParallelConfig, AggregatorConfig, HumanConfig, ToolConfig, OutputField } from '@/types/pipeline';
-import { MODEL_LABELS, MODELS_WITH_THINKING } from '@/types/pipeline';
+import { useRunStore } from '@/store/runStore';
+import { useSettingsStore } from '@/store/settingsStore';
+import type { NodeData, LLMAgentConfig, DecisionConfig, LoopConfig, ParallelConfig, AggregatorConfig, HumanConfig, ToolConfig, OutputField } from '@/types/pipeline';
 import { collectUpstreamSchemas } from '@/lib/pipeline';
+import { groupModelsByProvider, resolveModel } from '@/lib/models';
 import PromptEditor from './PromptEditor';
 import OutputSchemaEditor from './OutputSchemaEditor';
 import ConditionEditor from './ConditionEditor';
-
-const MODELS = Object.entries(MODEL_LABELS) as [ModelId, string][];
 
 // Kind → tint + border + text (light theme)
 const KIND_STYLE: Record<
@@ -27,15 +27,39 @@ const KIND_STYLE: Record<
   output:    { bg: '#ece6f8', border: '#c5b4e8', text: '#6d28d9', dot: '#7c3aed' },
 };
 
+/**
+ * NodeDetail is split into an outer reader and an inner editor so we can
+ * use a `key={node.id}` reset pattern (React 19 idiom — preferred over
+ * `useEffect` setState, which trips `react-hooks/set-state-in-effect`).
+ * The inner component initializes its `draft` state from props once and
+ * re-mounts naturally whenever selection changes.
+ */
 export default function NodeDetail() {
-  const { nodes, edges, selectedNodeId, selectNode, updateNodeData } = usePipelineStore();
+  const nodes = usePipelineStore((s) => s.nodes);
+  const selectedNodeId = usePipelineStore((s) => s.selectedNodeId);
   const node = nodes.find((n) => n.id === selectedNodeId);
-  const [draft, setDraft] = useState<NodeData | null>(null);
-  const [saved, setSaved] = useState(false);
+  if (!node) return null;
+  return <NodeDetailEditor key={node.id} nodeId={node.id} />;
+}
 
-  useEffect(() => {
-    if (node) setDraft(JSON.parse(JSON.stringify(node.data)));
-  }, [selectedNodeId]);
+function NodeDetailEditor({ nodeId }: { nodeId: string }) {
+  // Fine-grained subscriptions to avoid re-rendering on unrelated store
+  // changes (e.g. chat messages).
+  const nodes = usePipelineStore((s) => s.nodes);
+  const edges = usePipelineStore((s) => s.edges);
+  const selectNode = usePipelineStore((s) => s.selectNode);
+  const updateNodeData = usePipelineStore((s) => s.updateNodeData);
+  const isRunning = useRunStore((s) => s.status === 'running');
+
+  const node = nodes.find((n) => n.id === nodeId);
+  // Initialize draft from the current node's data once, on mount. The
+  // outer NodeDetail keys this component on `node.id` so a new draft
+  // arrives whenever selection changes.
+  const [draft, setDraft] = useState<NodeData | null>(() =>
+    node ? JSON.parse(JSON.stringify(node.data)) : null
+  );
+  const [saved, setSaved] = useState(false);
+  const selectedNodeId = nodeId;
 
   // Variables available to this node's condition editor.
   // Decision nodes evaluate over data flowing INTO them, so they only see
@@ -140,10 +164,9 @@ export default function NodeDetail() {
             </Field>
 
             <Field label="Model">
-              <Select
+              <ModelPicker
                 value={draft.agentConfig.model}
-                onChange={(v) => setAgent({ model: v as ModelId })}
-                options={MODELS.map(([id, label]) => ({ value: id, label }))}
+                onChange={(v) => setAgent({ model: v })}
               />
             </Field>
 
@@ -163,29 +186,32 @@ export default function NodeDetail() {
 
             <Field label="Max tokens">
               <input
-                type="number" min={64} max={1048576} step={64}
+                type="number" min={64} max={200000} step={64}
                 value={draft.agentConfig.maxTokens}
                 onChange={(e) => setAgent({ maxTokens: parseInt(e.target.value) })}
                 className="input-airtable"
               />
             </Field>
 
-            {MODELS_WITH_THINKING.has(draft.agentConfig.model) && (
-              <Field
-                label="Thinking budget"
-                hint="Reasoning-token allocation for native-thinking Gemini models. Controls how much chain-of-thought the model produces internally before its visible answer."
-              >
-                <input
-                  type="number" min={0} max={524288} step={1024}
-                  value={draft.agentConfig.thinkingBudget ?? 0}
-                  onChange={(e) =>
-                    setAgent({ thinkingBudget: parseInt(e.target.value) || undefined })
-                  }
-                  className="input-airtable"
-                  placeholder="e.g. 32768"
-                />
-              </Field>
-            )}
+            {(() => {
+              const m = resolveModel(draft.agentConfig.model);
+              return m?.supportsThinking ? (
+                <Field
+                  label="Thinking budget"
+                  hint="Reasoning-token allocation for models with native thinking (Anthropic extended thinking, Gemini reasoning, OpenAI o-series). Higher = deeper internal chain-of-thought."
+                >
+                  <input
+                    type="number" min={0} max={524288} step={1024}
+                    value={draft.agentConfig.thinkingBudget ?? 0}
+                    onChange={(e) =>
+                      setAgent({ thinkingBudget: parseInt(e.target.value) || undefined })
+                    }
+                    className="input-airtable"
+                    placeholder="e.g. 32768"
+                  />
+                </Field>
+              ) : null;
+            })()}
 
             <Field label="System prompt">
               <PromptEditor
@@ -387,15 +413,26 @@ export default function NodeDetail() {
 
       {/* Save */}
       <div className="px-5 py-4 border-t border-[#e0e2e6] bg-white">
+        {isRunning && (
+          <div className="flex items-start gap-2 mb-3 rounded-[10px] bg-[#fef4e6] border border-[#f5d7a0] px-3 py-2">
+            <Lock size={12} strokeWidth={2.2} className="text-[#b45309] shrink-0 mt-0.5" />
+            <p className="text-[11px] text-[#92400e] tracking-ui leading-snug">
+              Pipeline is running. Editing is locked until the run finishes —
+              the in-flight executor holds a snapshot of the spec, so live
+              edits wouldn&rsquo;t take effect anyway.
+            </p>
+          </div>
+        )}
         <button
           onClick={save}
-          className={`w-full h-10 rounded-[12px] text-[13px] font-semibold tracking-ui transition-all ${
+          disabled={isRunning}
+          className={`w-full h-10 rounded-[12px] text-[13px] font-semibold tracking-ui transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
             saved
               ? 'bg-[#006400] text-white shadow-[0_1px_3px_rgba(0,100,0,0.28)]'
               : 'bg-[#1b61c9] hover:bg-[#1755b1] text-white shadow-[0_1px_3px_rgba(45,127,249,0.28)]'
           }`}
         >
-          {saved ? '✓ Saved' : 'Save changes'}
+          {saved ? '✓ Saved' : isRunning ? 'Locked during run' : 'Save changes'}
         </button>
       </div>
 
@@ -479,6 +516,71 @@ function Select({
         strokeWidth={2}
         className="absolute right-3 top-1/2 -translate-y-1/2 text-[rgba(4,14,32,0.55)] pointer-events-none"
       />
+    </div>
+  );
+}
+
+/**
+ * Model picker grouped by provider, with a missing-key indicator next to
+ * each option so the user immediately sees which models won't run with
+ * their current settings.
+ */
+function ModelPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const apiKeys = useSettingsStore((s) => s.apiKeys);
+  const customOpenRouterModels = useSettingsStore((s) => s.customOpenRouterModels);
+  const groups = useMemo(
+    () => groupModelsByProvider(customOpenRouterModels),
+    [customOpenRouterModels]
+  );
+
+  const selectedModel = resolveModel(value, customOpenRouterModels);
+  const selectedProviderConfigured = selectedModel
+    ? Boolean(apiKeys[selectedModel.provider])
+    : false;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="input-airtable appearance-none pr-8 cursor-pointer"
+        >
+          {/* Preserve a non-resolvable existing value so the user doesn't
+              get a silent reset to whatever the first option is. */}
+          {!selectedModel && value && <option value={value}>{value} (unknown model)</option>}
+          {groups.map((g) => (
+            <optgroup key={g.provider.id} label={`${g.provider.label} ${apiKeys[g.provider.id] ? '(✓)' : '(no key)'}`}>
+              {g.models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        <ChevronDown
+          size={14}
+          strokeWidth={2}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-[rgba(4,14,32,0.55)] pointer-events-none"
+        />
+      </div>
+      {selectedModel && (
+        <div className="flex items-center gap-2 text-[11px] tracking-ui">
+          <span
+            className={`inline-flex items-center gap-1 rounded-[6px] border px-1.5 py-0.5 text-[10px] font-semibold tracking-caption ${
+              selectedProviderConfigured
+                ? 'bg-[#e7f6ee] border-[#a8d9bd] text-[#15803d]'
+                : 'bg-[#fef4e6] border-[#f5d7a0] text-[#b45309]'
+            }`}
+          >
+            {selectedProviderConfigured ? '✓ key set' : 'no key'}
+          </span>
+          <span className="text-[rgba(4,14,32,0.55)] truncate">
+            {selectedModel.description ?? selectedModel.providerModel}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -700,11 +700,506 @@ Return JSON: { "output": string, "coverage": float, "contradictions": boolean }`
   ],
 };
 
+// ─── Huang-Yang Sequential Verify ────────────────────────────────────────────
+//
+// Faithfully mirrors the Huang-Yang verification pipeline at
+// github.com/princeton-pli/momus-imo-solver (imo_solver/agents/huang_yang_agent.py).
+//
+// Pipeline flow (huang_yang_agent.py lines 28-139):
+//   1. init_explorations() → prover generates initial solution
+//   2. check_if_solution_claimed_complete() → binary completeness check
+//   3. improve_solution(no feedback) → self-improvement pass (always runs)
+//   4. Sequential verification loop (max_iterations=40):
+//      a. verify_solution() → verifier checks correctness
+//      b. analyze_verification_output() → bug_analyzer binary verdict
+//      c. If correct: consecutive_success++ (reset consecutive_failure=0)
+//         If success_threshold (5) reached → SOLVED
+//      d. If incorrect: consecutive_failure++ (reset consecutive_success=0)
+//         If failure_threshold (10) reached → give up run
+//         Else: improve_solution(with verification feedback)
+//   5. If initially incomplete: consecutive_failure starts at 1 (penalty)
+//
+// CRITICAL behavioral details:
+//   - Success resets failure counter to 0 and vice versa (lines 99-100, 113-114)
+//   - Improver uses prover_system_prompt (same persona, different user messages)
+//   - correction_task (with bug_report) vs improvement_task (without) — lines 257-279
+//   - completeness_checker and bug_analyzer respond exactly "yes" or "no"
+//
+// All model IDs, temperatures match huang_yang_config.yaml exactly.
+// All prompt descriptions match huang_yang_prompts.yaml.
+
+const HUANG_YANG: Pipeline = {
+  id: 'huang-yang-sequential-verify',
+  name: 'Huang-Yang Sequential Verify',
+  description:
+    'Sequential solve-verify-improve loop from the Momus IMO Solver project. ' +
+    'A prover generates a solution, a completeness checker gates it, then a verification ' +
+    'loop repeatedly verifies and improves until 5 consecutive successes or 10 consecutive failures.',
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z',
+  edges: [
+    // Phase 1: Initial solve + completeness check + self-improvement
+    edge('hy-e1', 'hy-input', 'hy-prover'),
+    edge('hy-e2', 'hy-prover', 'hy-completenessCheck'),
+    edge('hy-e3', 'hy-completenessCheck', 'hy-improver'),
+    // Phase 2: Sequential verification loop
+    edge('hy-e4', 'hy-improver', 'hy-verifyLoop'),
+    edge('hy-e5', 'hy-verifyLoop', 'hy-verifier'),
+    edge('hy-e6', 'hy-verifier', 'hy-bugAnalyzer'),
+    edge('hy-e7', 'hy-bugAnalyzer', 'hy-verdictGate'),
+    // Correct path: check if success_threshold reached
+    edge('hy-e8', 'hy-verdictGate', 'hy-successCheck', {
+      sourceHandle: 'true', label: 'Correct',
+      animated: true, style: { stroke: '#16a34a' },
+    }),
+    edge('hy-e9', 'hy-successCheck', 'hy-output', {
+      sourceHandle: 'true', label: '5 consecutive ✓',
+      animated: true, style: { stroke: '#16a34a' },
+    }),
+    edge('hy-e10', 'hy-successCheck', 'hy-verifyLoop', {
+      sourceHandle: 'false', label: 'Keep verifying',
+      animated: true, style: { stroke: '#6366f1' },
+    }),
+    // Incorrect path: check if failure_threshold reached
+    edge('hy-e11', 'hy-verdictGate', 'hy-failureCheck', {
+      sourceHandle: 'false', label: 'Has issues',
+      animated: true, style: { stroke: '#dc2626' },
+    }),
+    edge('hy-e12', 'hy-failureCheck', 'hy-failOutput', {
+      sourceHandle: 'true', label: '10 consecutive ✗',
+      animated: true, style: { stroke: '#dc2626' },
+    }),
+    edge('hy-e13', 'hy-failureCheck', 'hy-corrector', {
+      sourceHandle: 'false', label: 'Fix & retry',
+      animated: true, style: { stroke: '#d97706' },
+    }),
+    edge('hy-e14', 'hy-corrector', 'hy-verifyLoop', { label: 'improved solution', animated: true }),
+  ],
+  nodes: [
+    // ── Input ──
+    { id: 'hy-input', type: 'input', position: { x: 400, y: 20 },
+      data: { label: 'Math Problem', description: 'IMO or competition-level problem statement' } },
+
+    // ── Step 1: Initial Exploration (prover role) ──
+    // huang_yang_agent.py:141-167, config: prover → gemini-2.5-pro-native, temp=0.5
+    {
+      id: 'hy-prover', type: 'llm_agent', position: { x: 400, y: 140 },
+      data: {
+        label: 'Prover (Initial Solve)',
+        description: 'init_explorations(): Generate initial solution with Summary (Verdict + Method Sketch) + Detailed Solution. ' +
+          'Source: huang_yang_agent.py:141-167, role=prover',
+        agentConfig: {
+          role: 'hy_prover', model: 'gemini-2.5-pro-native', temperature: 0.5, maxTokens: 32768,
+          thinkingBudget: 32768,
+          systemPrompt:
+            'You are a rigorous IMO-level mathematician. Produce a complete solution with:\n' +
+            '1. Summary: (a) Verdict — complete or partial? (b) Method Sketch — high-level strategy + key lemma statements.\n' +
+            '2. Detailed Solution: Full step-by-step proof. Every step logically justified.\n' +
+            'Use TeX for all math. If you cannot find a complete solution, present only significant partial results you can rigorously prove.\n' +
+            'Before finalizing, review your work for rigor and correctness.',
+        },
+      },
+    },
+
+    // ── Step 2: Completeness Check (completeness_checker role) ──
+    // huang_yang_agent.py:206-223, config: completeness_checker → gemini-2.5-flash-no-thinking
+    // Returns exactly "yes" or "no". Sets was_initially_incomplete flag.
+    // If incomplete: consecutive_failure starts at 1 (penalty, line 83).
+    {
+      id: 'hy-completenessCheck', type: 'llm_agent', position: { x: 400, y: 290 },
+      data: {
+        label: 'Completeness Checker',
+        description: 'check_if_solution_claimed_complete(): Binary "yes"/"no" — does the solution present a complete reasoning chain? ' +
+          'If "no", consecutive_failure starts at 1 (penalty). ' +
+          'Source: huang_yang_agent.py:206-223, role=completeness_checker, model=gemini-2.5-flash-no-thinking',
+        agentConfig: {
+          role: 'hy_completeness_checker', model: 'gemini-2.5-flash-native', temperature: 0.0, maxTokens: 16,
+          systemPrompt:
+            'You are a mathematical solution assessor. Determine whether the solution presents a complete reasoning chain that claims to solve the problem.\n' +
+            'For proof problems: look for complete logical sequence, clear statement of what is proven, chain connecting premises to conclusion, definitive conclusion (QED, etc.).\n' +
+            'For computational problems: all calculations performed, clear final answer, statement indicating fully solved.\n' +
+            'You are NOT evaluating correctness — only whether the solution presents a complete chain.\n' +
+            'Respond with exactly "yes" or "no".',
+          outputSchema: [
+            { name: 'verdict', type: 'enum', description: '"yes" if complete chain, "no" if partial', enumValues: ['yes', 'no'] },
+          ],
+        },
+      },
+    },
+
+    // ── Step 3: Self-Improvement (improver role, NO verification feedback) ──
+    // huang_yang_agent.py:61-77 — always runs whether solution is complete or not.
+    // Uses improvement_task template (no bug_report). System prompt = prover_system_prompt (same persona).
+    // config: improver → gemini-2.5-pro-native, temp=0.3
+    {
+      id: 'hy-improver', type: 'llm_agent', position: { x: 400, y: 440 },
+      data: {
+        label: 'Self-Improver (No Feedback)',
+        description: 'improve_solution(no verification_output): Review and improve solution without external feedback. ' +
+          'Uses improvement_task template. System prompt = prover_system_prompt (same persona as prover). ' +
+          'Source: huang_yang_agent.py:246-279, role=improver, temp=0.3',
+        agentConfig: {
+          role: 'hy_improver', model: 'gemini-2.5-pro-native', temperature: 0.3, maxTokens: 32768,
+          thinkingBudget: 32768,
+          systemPrompt:
+            'You are a rigorous IMO-level mathematician. Produce a complete solution with:\n' +
+            '1. Summary: (a) Verdict — complete or partial? (b) Method Sketch — high-level strategy + key lemma statements.\n' +
+            '2. Detailed Solution: Full step-by-step proof. Every step logically justified.\n' +
+            'Use TeX for all math. If you cannot find a complete solution, present only significant partial results you can rigorously prove.\n' +
+            'Before finalizing, review your work for rigor and correctness.',
+        },
+      },
+    },
+
+    // ── Verification Loop ──
+    // huang_yang_agent.py:88 — max_iterations=40, but exit via consecutive counters
+    {
+      id: 'hy-verifyLoop', type: 'loop', position: { x: 400, y: 590 },
+      data: {
+        label: 'Verification Loop',
+        description: 'max_iterations=40 (huang_yang_config.yaml). Exits early on ' +
+          'consecutive_success >= 5 (SOLVED) or consecutive_failure >= 10 (GIVE UP). ' +
+          'Initially incomplete solutions start with consecutive_failure=1.',
+        loopConfig: {
+          maxIterations: 40,
+          breakCondition: '{{hy_verifyLoop.consecutiveSuccess}} >= 5',
+          counter: {
+            condition: '{{hy_bug_analyzer.verdict}} == "yes"',
+            trueName: 'consecutiveSuccess',
+            falseName: 'consecutiveFailure',
+            // huang_yang_agent.py:83 — initially incomplete solutions start at 1.
+            // Set to 0 here; the completeness checker upstream should adjust.
+            initialFalse: 0,
+          },
+        },
+      },
+    },
+
+    // ── Step 4a: Verify Solution (verifier role) ──
+    // huang_yang_agent.py:169-204, config: verifier → gemini-2.5-pro-native, temp=0.2
+    {
+      id: 'hy-verifier', type: 'llm_agent', position: { x: 400, y: 740 },
+      data: {
+        label: 'Verifier',
+        description: 'verify_solution(): Step-by-step IMO grader. Classifies issues as Critical Error (breaks logic chain) ' +
+          'or Justification Gap (may be correct but insufficiently proven). ' +
+          'Outputs Summary (Final Verdict + List of Findings) + Detailed Verification Log. ' +
+          'Source: huang_yang_agent.py:169-204, role=verifier, temp=0.2',
+        agentConfig: {
+          role: 'hy_verifier', model: 'gemini-2.5-pro-native', temperature: 0.2, maxTokens: 32768,
+          thinkingBudget: 32768,
+          systemPrompt:
+            'You are an expert mathematician and meticulous IMO grader. Verify the provided solution rigorously.\n' +
+            'A solution is correct ONLY if every step is rigorously justified. Correct answer from flawed reasoning = incorrect.\n\n' +
+            'Issue classification:\n' +
+            '- Critical Error: breaks the logical chain (logical fallacy or factual error). Stop checking dependent steps, but scan for independent parts.\n' +
+            '- Justification Gap: conclusion may be correct but argument is incomplete. Assume conclusion true for sake of argument, continue checking.\n\n' +
+            'Output format:\n' +
+            '1. Summary: (a) Final Verdict (b) List of Findings — each with Location (quote) and Issue (classification + description)\n' +
+            '2. Detailed Verification Log: step-by-step, quoting relevant text before analyzing each part.',
+        },
+      },
+    },
+
+    // ── Step 4b: Analyze Verification (bug_analyzer role) ──
+    // huang_yang_agent.py:225-244, config: bug_analyzer → gemini-2.5-flash-no-thinking
+    // Returns exactly "yes" (correct/minor) or "no" (critical errors/major gaps)
+    {
+      id: 'hy-bugAnalyzer', type: 'llm_agent', position: { x: 400, y: 900 },
+      data: {
+        label: 'Bug Analyzer',
+        description: 'analyze_verification_output(): Binary "yes"/"no" on verification report. ' +
+          '"yes" = correct or only minor issues. "no" = critical errors or major gaps. ' +
+          'Source: huang_yang_agent.py:225-244, role=bug_analyzer, model=gemini-2.5-flash-no-thinking',
+        agentConfig: {
+          role: 'hy_bug_analyzer', model: 'gemini-2.5-flash-native', temperature: 0.0, maxTokens: 16,
+          systemPrompt:
+            'You are an expert at analyzing mathematical verification reports and determining solution correctness.\n' +
+            'Read the verification report and determine if the solution is correct or contains significant errors.\n' +
+            'Respond with exactly "yes" if the report indicates the solution is correct or contains only minor issues.\n' +
+            'Respond with exactly "no" if the report indicates critical errors, major justification gaps, or is otherwise incorrect.',
+          outputSchema: [
+            { name: 'verdict', type: 'enum', description: '"yes" if correct, "no" if errors', enumValues: ['yes', 'no'] },
+          ],
+        },
+      },
+    },
+
+    // ── Step 4c: Verdict Gate ──
+    // huang_yang_agent.py:98 — routes based on bug_analyzer's "yes"/"no"
+    {
+      id: 'hy-verdictGate', type: 'decision', position: { x: 400, y: 1060 },
+      data: {
+        label: 'Correct?',
+        description: 'Routes based on bug_analyzer verdict. "yes" → success path (increment consecutive_success, reset consecutive_failure=0). ' +
+          '"no" → failure path (increment consecutive_failure, reset consecutive_success=0). ' +
+          'Source: huang_yang_agent.py:98-132',
+        decisionConfig: {
+          condition: '{{hy_bug_analyzer.verdict}} == "yes"',
+          trueLabel: 'Correct',
+          falseLabel: 'Has Issues',
+        },
+      },
+    },
+
+    // ── Success Counter Check ──
+    // huang_yang_agent.py:105 — consecutive_success >= success_threshold (5)
+    {
+      id: 'hy-successCheck', type: 'decision', position: { x: 150, y: 1200 },
+      data: {
+        label: 'Success Threshold?',
+        description: 'consecutive_success >= 5? If yes → SOLVED. If no → keep verifying. ' +
+          'Each success resets consecutive_failure to 0 (line 100). ' +
+          'Source: huang_yang_config.yaml success_threshold=5',
+        decisionConfig: {
+          condition: '{{hy_verifyLoop.consecutiveSuccess}} >= 5',
+          trueLabel: '5 consecutive ✓ → SOLVED',
+          falseLabel: 'Continue',
+        },
+      },
+    },
+
+    // ── Failure Counter Check ──
+    // huang_yang_agent.py:119 — consecutive_failure >= failure_threshold (10)
+    {
+      id: 'hy-failureCheck', type: 'decision', position: { x: 650, y: 1200 },
+      data: {
+        label: 'Failure Threshold?',
+        description: 'consecutive_failure >= 10? If yes → give up this run. If no → fix and retry. ' +
+          'Each failure resets consecutive_success to 0 (line 113). ' +
+          'Note: initially incomplete solutions start at consecutive_failure=1 (line 83). ' +
+          'Source: huang_yang_config.yaml failure_threshold=10',
+        decisionConfig: {
+          condition: '{{hy_verifyLoop.consecutiveFailure}} >= 10',
+          trueLabel: '10 consecutive ✗ → GIVE UP',
+          falseLabel: 'Fix & Retry',
+        },
+      },
+    },
+
+    // ── Step 4d: Corrector (improver role WITH verification feedback) ──
+    // huang_yang_agent.py:127-132 — improve_solution(problem, dsol, verification_output)
+    // Uses correction_task template with bug_report. System prompt = prover_system_prompt (same persona).
+    // config: improver → gemini-2.5-pro-native, temp=0.3
+    {
+      id: 'hy-corrector', type: 'llm_agent', position: { x: 650, y: 1370 },
+      data: {
+        label: 'Corrector (With Feedback)',
+        description: 'improve_solution(with verification_output): Fix solution based on verifier\'s bug report. ' +
+          'Uses correction_task template. If agrees with bug report → fix; if disagrees → add explanations. ' +
+          'System prompt = prover_system_prompt (same persona). ' +
+          'Source: huang_yang_agent.py:127-132, correction_prompt from huang_yang_prompts.yaml',
+        agentConfig: {
+          role: 'hy_corrector', model: 'gemini-2.5-pro-native', temperature: 0.3, maxTokens: 32768,
+          thinkingBudget: 32768,
+          systemPrompt:
+            'You are a rigorous IMO-level mathematician. Produce a complete solution with:\n' +
+            '1. Summary: (a) Verdict — complete or partial? (b) Method Sketch — high-level strategy + key lemma statements.\n' +
+            '2. Detailed Solution: Full step-by-step proof. Every step logically justified.\n' +
+            'Use TeX for all math. If you cannot find a complete solution, present only significant partial results you can rigorously prove.\n' +
+            'Before finalizing, review your work for rigor and correctness.',
+        },
+      },
+    },
+
+    // ── Outputs ──
+    { id: 'hy-output', type: 'output', position: { x: 150, y: 1370 },
+      data: { label: 'Verified Solution', description: 'Solution verified correct 5 consecutive times (SolutionStatus.SOLVED)' } },
+    { id: 'hy-failOutput', type: 'output', position: { x: 900, y: 1370 },
+      data: { label: 'Unsolved', description: 'Failed verification 10 consecutive times (SolutionStatus.UNSOLVED)' } },
+  ],
+};
+
+// ─── Parallel Divide and Resolve (PDR) ───────────────────────────────────────
+//
+// General-purpose pattern for complex tasks where subtask solutions may conflict.
+// Unlike "Divide and Conquer" (which assumes independent subtasks), PDR has an
+// explicit conflict-detection and resolution loop.
+//
+// Flow:
+//   1. Planner decomposes problem into subtasks with dependency analysis
+//   2. Parallel workers solve each subtask independently
+//   3. Resolver merges results and identifies inter-subtask conflicts
+//   4. If conflicts exist: Mediator resolves them, loops back to resolver
+//   5. If clean: output final integrated result
+
+const PDR: Pipeline = {
+  id: 'parallel-divide-resolve',
+  name: 'Parallel Divide & Resolve',
+  description:
+    'Decompose a complex problem into subtasks, solve in parallel, then iteratively resolve conflicts ' +
+    'between subtask solutions until a coherent unified result emerges. Unlike Divide-and-Conquer, ' +
+    'PDR handles tasks where subtask solutions may contradict each other.',
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z',
+  edges: [
+    edge('pdr-e1', 'pdr-input', 'pdr-planner'),
+    edge('pdr-e2', 'pdr-planner', 'pdr-fanOut'),
+    edge('pdr-e3', 'pdr-fanOut', 'pdr-worker', { animated: true }),
+    edge('pdr-e4', 'pdr-worker', 'pdr-collector'),
+    edge('pdr-e5', 'pdr-collector', 'pdr-resolveLoop'),
+    edge('pdr-e6', 'pdr-resolveLoop', 'pdr-resolver'),
+    edge('pdr-e7', 'pdr-resolver', 'pdr-conflictCheck'),
+    edge('pdr-e8', 'pdr-conflictCheck', 'pdr-output', {
+      sourceHandle: 'true', label: 'No conflicts',
+      animated: true, style: { stroke: '#16a34a' },
+    }),
+    edge('pdr-e9', 'pdr-conflictCheck', 'pdr-mediator', {
+      sourceHandle: 'false', label: 'Conflicts found',
+      animated: true, style: { stroke: '#d97706' },
+    }),
+    edge('pdr-e10', 'pdr-mediator', 'pdr-resolver', { label: 'revised merge', animated: true }),
+  ],
+  nodes: [
+    { id: 'pdr-input', type: 'input', position: { x: 300, y: 20 },
+      data: { label: 'Complex Problem', description: 'Task requiring decomposition into potentially interdependent subtasks' } },
+
+    {
+      id: 'pdr-planner', type: 'llm_agent', position: { x: 300, y: 140 },
+      data: {
+        label: 'Task Planner',
+        description: 'Decomposes the problem into subtasks with dependency analysis and interface contracts',
+        agentConfig: {
+          role: 'pdr_planner', model: 'claude-opus-4-7', temperature: 0.4, maxTokens: 2048,
+          systemPrompt:
+            'You are a strategic task planner. Break the given problem into independent subtasks that can be solved in parallel.\n' +
+            'For each subtask provide:\n' +
+            '- title: clear name\n' +
+            '- description: precise scope and constraints\n' +
+            '- interface_contract: what this subtask must produce (format, assumptions)\n' +
+            '- potential_conflicts: areas where this subtask\'s solution might conflict with others\n\n' +
+            'Return JSON: { "subtasks": [...], "integration_notes": string }',
+          outputSchema: [
+            { name: 'subtasks', type: 'array', description: 'List of subtask objects with title, description, interface_contract, potential_conflicts' },
+            { name: 'integration_notes', type: 'string', description: 'Notes on how subtask solutions should be integrated' },
+          ],
+        },
+      },
+    },
+
+    {
+      id: 'pdr-fanOut', type: 'parallel', position: { x: 300, y: 310 },
+      data: {
+        label: 'Subtask Fan-out',
+        description: 'Distribute subtasks to parallel workers',
+        parallelConfig: { numParallel: 6, label: 'subtask workers' },
+      },
+    },
+
+    {
+      id: 'pdr-worker', type: 'llm_agent', position: { x: 300, y: 470 },
+      data: {
+        label: 'Subtask Worker',
+        description: 'Solves one subtask independently, honoring the interface contract',
+        agentConfig: {
+          role: 'pdr_worker', model: 'claude-sonnet-4-6', temperature: 0.6, maxTokens: 4096,
+          systemPrompt:
+            'You are a focused subtask solver. You receive one subtask with its description, scope, and interface contract.\n' +
+            'Provide a complete solution that:\n' +
+            '1. Stays within the defined scope\n' +
+            '2. Produces output matching the interface contract exactly\n' +
+            '3. Documents any assumptions you made\n' +
+            '4. Flags areas where your solution might conflict with parallel subtasks\n\n' +
+            'Return JSON: { "solution": string, "assumptions": string[], "conflict_risks": string[] }',
+          outputSchema: [
+            { name: 'solution', type: 'string', description: 'Complete subtask solution' },
+            { name: 'assumptions', type: 'array', description: 'Assumptions made during solving' },
+            { name: 'conflict_risks', type: 'array', description: 'Potential conflict areas with other subtasks' },
+          ],
+        },
+      },
+    },
+
+    {
+      id: 'pdr-collector', type: 'aggregator', position: { x: 300, y: 640 },
+      data: {
+        label: 'Collect Results',
+        description: 'Gather all subtask solutions',
+        aggregatorConfig: { strategy: 'all' },
+      },
+    },
+
+    {
+      id: 'pdr-resolveLoop', type: 'loop', position: { x: 300, y: 790 },
+      data: {
+        label: 'Resolution Loop',
+        description: 'Iterate until all conflicts are resolved',
+        loopConfig: { maxIterations: 4, breakCondition: '{{pdr_resolver.has_conflicts}} == false' },
+      },
+    },
+
+    {
+      id: 'pdr-resolver', type: 'llm_agent', position: { x: 300, y: 940 },
+      data: {
+        label: 'Resolver',
+        description: 'Merges subtask solutions, identifies contradictions and inconsistencies',
+        agentConfig: {
+          role: 'pdr_resolver', model: 'claude-opus-4-7', temperature: 0.3, maxTokens: 4096,
+          systemPrompt:
+            'You are an expert integrator. Given solutions to multiple subtasks, merge them into a single coherent result.\n' +
+            'Carefully check for:\n' +
+            '- Contradictory assumptions between subtasks\n' +
+            '- Incompatible outputs (format, value, or semantic conflicts)\n' +
+            '- Missing integration points (subtask A expects input from B but B produces something different)\n' +
+            '- Redundant or duplicated work\n\n' +
+            'Return JSON:\n' +
+            '{ "merged_result": string, "has_conflicts": boolean, "conflicts": [{"between": [string, string], "description": string, "severity": "critical"|"minor"}], "resolution_suggestions": string[] }',
+          outputSchema: [
+            { name: 'merged_result', type: 'string', description: 'Best-effort merged result' },
+            { name: 'has_conflicts', type: 'boolean', description: 'True if unresolved conflicts remain' },
+            { name: 'conflicts', type: 'array', description: 'List of conflicts with severity' },
+            { name: 'resolution_suggestions', type: 'array', description: 'Suggested fixes for each conflict' },
+          ],
+        },
+      },
+    },
+
+    {
+      id: 'pdr-conflictCheck', type: 'decision', position: { x: 300, y: 1110 },
+      data: {
+        label: 'Conflicts Resolved?',
+        description: 'Check if all inter-subtask conflicts have been resolved',
+        decisionConfig: {
+          condition: '!{{pdr_resolver.has_conflicts}}',
+          trueLabel: 'Clean',
+          falseLabel: 'Conflicts Remain',
+        },
+      },
+    },
+
+    {
+      id: 'pdr-mediator', type: 'llm_agent', position: { x: 620, y: 1110 },
+      data: {
+        label: 'Conflict Mediator',
+        description: 'Resolves specific conflicts between subtask solutions by finding compatible alternatives',
+        agentConfig: {
+          role: 'pdr_mediator', model: 'claude-opus-4-7', temperature: 0.5, maxTokens: 4096,
+          systemPrompt:
+            'You are a conflict mediator for a multi-agent system. You receive:\n' +
+            '1. The current merged result (with conflicts)\n' +
+            '2. A list of specific conflicts between subtask solutions\n' +
+            '3. Resolution suggestions from the resolver\n\n' +
+            'For each conflict:\n' +
+            '- Analyze the root cause (incompatible assumptions, different interpretations, etc.)\n' +
+            '- Determine which subtask\'s approach is more correct or if a compromise is needed\n' +
+            '- Produce a specific resolution that both sides can accept\n\n' +
+            'Return the revised merged result with all conflicts resolved. Explain each resolution decision.',
+        },
+      },
+    },
+
+    { id: 'pdr-output', type: 'output', position: { x: 300, y: 1280 },
+      data: { label: 'Resolved Result', description: 'Conflict-free unified solution from all subtasks' } },
+  ],
+};
+
 export const TEMPLATES: PipelineTemplate[] = [
   { id: 'momus', name: 'Momus IMO Solver', description: 'Multi-agent iterative pipeline for competition mathematics', category: 'Research', pipeline: MOMUS },
+  { id: 'huang-yang', name: 'Huang-Yang Sequential Verify', description: 'Sequential solve-verify-improve loop with consecutive-counter exit logic', category: 'Research', pipeline: HUANG_YANG },
   { id: 'generate-critique-refine', name: 'Generate → Critique → Refine', description: 'Iterative quality-improvement loop', category: 'Quality', pipeline: GCR },
   { id: 'parallel-and-distill', name: 'Parallel Solve → Distill', description: 'N parallel solvers distilled into one best answer', category: 'Parallel', pipeline: PAD },
   { id: 'divide-and-conquer', name: 'Divide and Conquer', description: 'Decompose, solve in parallel, synthesize', category: 'Parallel', pipeline: DAC },
+  { id: 'parallel-divide-resolve', name: 'Parallel Divide & Resolve', description: 'Decompose → parallel solve → iterative conflict resolution', category: 'Parallel', pipeline: PDR },
   { id: 'map-reduce', name: 'Map-Reduce', description: 'Split → map in parallel → reduce to single output', category: 'Data', pipeline: MAP_REDUCE },
 ];
 

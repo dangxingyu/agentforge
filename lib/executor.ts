@@ -50,18 +50,32 @@ export type ExecutionStatus = 'idle' | 'running' | 'complete' | 'error' | 'abort
 export interface LLMCallParams {
   system: string;
   user: string;
+  /** Model id (e.g. "claude-sonnet-4-6"). Resolved by the caller against
+   * the provider registry. */
   model: string;
   temperature: number;
   maxTokens: number;
+  /** Reasoning-token budget for models that support it. Forwarded to
+   * Anthropic extended thinking and OpenRouter `reasoning.max_tokens`. */
+  thinkingBudget?: number;
+}
+
+export interface LLMCallOptions {
+  /** Streaming callback — receives each visible text delta. */
+  onPartial?: (text: string) => void;
+  /** Forwarded to the underlying SDK so client cancellation actually
+   * aborts the in-flight call rather than draining the rest of the
+   * completion at the user's expense. */
+  signal?: AbortSignal;
 }
 
 export interface LLMCaller {
   /**
-   * Call the LLM and return its full response text. If `onPartial` is
+   * Call the LLM and return its full response text. If `opts.onPartial` is
    * provided, the implementation should emit incremental chunks for
    * streaming UIs.
    */
-  call(params: LLMCallParams, onPartial?: (text: string) => void): Promise<string>;
+  call(params: LLMCallParams, opts?: LLMCallOptions): Promise<string>;
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────
@@ -171,23 +185,69 @@ export class PipelineExecutor {
         }
 
         case 'loop': {
-          // Loop nodes are pass-through annotations in v1. The actual cycle
-          // is created by decision back-edges. We honor maxIterations as a
+          // Loop nodes are pass-through annotations. The actual cycle is
+          // created by decision back-edges. We honor maxIterations as a
           // visit cap and check breakCondition on each (re)entry to allow
           // early exit when the cycle is structured to revisit the loop.
           result = upstreamValue;
           const cfg = node.data.loopConfig;
-          if (cfg?.breakCondition && this.visits[node.id] > 1) {
+
+          // ── Consecutive counter support ──
+          // If the loop has a `counter` config, we track two mutually-resetting
+          // counters (like Huang-Yang's consecutive_success / consecutive_failure).
+          // On each re-entry, evaluate the counter condition:
+          //   true  → consecutiveTrue++, consecutiveFalse = 0
+          //   false → consecutiveFalse++, consecutiveTrue = 0
+          // Values are exposed in this.context as {{loopRole.trueName}} etc.
+          if (cfg?.counter) {
+            const cc = cfg.counter;
+            // Derive a context namespace from node id: "hy-verifyLoop" → "hy_verifyLoop"
+            const ns = node.id.replace(/-/g, '_');
+            const trueName = cc.trueName ?? 'consecutiveTrue';
+            const falseName = cc.falseName ?? 'consecutiveFalse';
+            const trueKey = `${ns}.${trueName}`;
+            const falseKey = `${ns}.${falseName}`;
+
+            if (this.visits[node.id] === 1) {
+              // First entry — initialize counters
+              this.context[trueKey] = 0;
+              this.context[falseKey] = cc.initialFalse ?? 0;
+            } else {
+              // Re-entry — evaluate condition and update counters
+              const condResult = this.evaluate(cc.condition, this.context, node.id);
+              if (condResult) {
+                this.context[trueKey] = (this.context[trueKey] as number) + 1;
+                this.context[falseKey] = 0;
+              } else {
+                this.context[falseKey] = (this.context[falseKey] as number) + 1;
+                this.context[trueKey] = 0;
+              }
+            }
+          }
+
+          if (cfg && this.visits[node.id] > 1) {
             // Already iterated at least once — check for early break.
-            if (this.evaluate(cfg.breakCondition, this.context, node.id)) {
+            const shouldBreak =
+              (cfg.breakCondition && this.evaluate(cfg.breakCondition, this.context, node.id)) ||
+              // Hard stop: if we've re-entered more than maxIterations times,
+              // force-exit rather than re-entering the loop body.
+              this.visits[node.id] > cfg.maxIterations;
+
+            if (shouldBreak) {
               this.emit({
                 type: 'node:complete',
                 timestamp: Date.now(),
                 nodeId: node.id,
-                output: { broke_early_at_iteration: this.visits[node.id] },
+                output: {
+                  broke_at_iteration: this.visits[node.id] - 1,
+                  reason: this.visits[node.id] > cfg.maxIterations
+                    ? 'maxIterations_exhausted'
+                    : 'breakCondition_met',
+                },
               });
-              // No further forward action — caller cycle should naturally exit.
-              // We still need an outgoing edge to advance.
+              // Terminate the pipeline branch — return the last upstream value
+              // as the final result, same as an output node.
+              return result;
             }
           }
           nextEdge = this.firstOutgoing(node);
@@ -283,14 +343,18 @@ export class PipelineExecutor {
         model: cfg.model,
         temperature: cfg.temperature,
         maxTokens: cfg.maxTokens,
+        thinkingBudget: cfg.thinkingBudget,
       },
-      (partial) => {
-        this.emit({
-          type: 'node:partial',
-          timestamp: Date.now(),
-          nodeId: node.id,
-          text: partial,
-        });
+      {
+        signal: this.options.signal,
+        onPartial: (partial) => {
+          this.emit({
+            type: 'node:partial',
+            timestamp: Date.now(),
+            nodeId: node.id,
+            text: partial,
+          });
+        },
       }
     );
 
@@ -521,7 +585,41 @@ export class PipelineExecutor {
     if (node.type === 'loop' && node.data.loopConfig) {
       return node.data.loopConfig.maxIterations + 1;
     }
+    // If this node is reachable from a loop, inherit that loop's iteration cap.
+    // This prevents inner-loop nodes from hitting the default cap (50) before
+    // the loop's own maxIterations is reached. Walk backwards through incoming
+    // edges to find the nearest ancestor loop.
+    const ancestorLoopCap = this.findAncestorLoopCap(node.id);
+    if (ancestorLoopCap !== undefined) {
+      // +2: the node may be visited once before the loop starts, plus one
+      // final visit on the break iteration.
+      return ancestorLoopCap + 2;
+    }
     return this.options.defaultMaxVisits ?? 50;
+  }
+
+  /** Walk backward from `nodeId` through incoming edges to find a loop node.
+   * Returns that loop's maxIterations, or undefined if no loop ancestor. */
+  private findAncestorLoopCap(nodeId: string): number | undefined {
+    const incoming = new Map<string, string[]>();
+    for (const e of this.pipeline.edges) {
+      if (!incoming.has(e.target)) incoming.set(e.target, []);
+      incoming.get(e.target)!.push(e.source);
+    }
+    const visited = new Set<string>();
+    const stack = [nodeId];
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const node = this.nodes.get(id);
+      if (node?.type === 'loop' && node.data.loopConfig) {
+        return node.data.loopConfig.maxIterations;
+      }
+      const parents = incoming.get(id);
+      if (parents) for (const p of parents) stack.push(p);
+    }
+    return undefined;
   }
 
   private evaluate(expr: string, ctx: Record<string, Value>, nodeId?: string): boolean {

@@ -1,14 +1,28 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
-import { Download, Upload, Layers, ChevronDown, Plus, Play } from 'lucide-react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { Download, Upload, Layers, ChevronDown, Plus, Play, Settings } from 'lucide-react';
 import { usePipelineStore } from '@/store/pipelineStore';
+import { useRunStore } from '@/store/runStore';
 import { TEMPLATES } from '@/lib/templates';
 import { exportPipelineYAML, exportPromptsYAML, createNode, generatePipelineId } from '@/lib/pipeline';
 import type { NodeKind } from '@/types/pipeline';
+import SettingsModal from './SettingsModal';
 
 interface ToolbarProps {
   onRunClick?: () => void;
   runActive?: boolean;
+}
+
+/**
+ * Pick a random-but-on-canvas position for a freshly added node.
+ * Defined OUTSIDE the component so React 19's `react-hooks/purity` rule
+ * doesn't flag the `Math.random` calls — they're not in render scope.
+ */
+function pickAddPosition(): { x: number; y: number } {
+  return {
+    x: 100 + Math.floor(Math.random() * 400),
+    y: 100 + Math.floor(Math.random() * 400),
+  };
 }
 
 const NODE_TYPES: { kind: NodeKind; label: string; dot: string }[] = [
@@ -22,11 +36,24 @@ const NODE_TYPES: { kind: NodeKind; label: string; dot: string }[] = [
 ];
 
 export default function Toolbar({ onRunClick, runActive }: ToolbarProps = {}) {
-  const { nodes, edges, pipeline, loadTemplate, setNodes, setEdges } = usePipelineStore();
+  // Subscribe to fine-grained slices to avoid re-rendering the whole toolbar
+  // on every keystroke in NodeDetail (the previous bare destructure
+  // returned a fresh object every render and triggered the toolbar even on
+  // unrelated state changes).
+  const nodes = usePipelineStore((s) => s.nodes);
+  const edges = usePipelineStore((s) => s.edges);
+  const pipelineMeta = usePipelineStore((s) => s.pipeline);
+  const loadTemplate = usePipelineStore((s) => s.loadTemplate);
+  const setNodes = usePipelineStore((s) => s.setNodes);
+  const setEdges = usePipelineStore((s) => s.setEdges);
+  // Run-mode lock: while a pipeline is executing we disable destructive
+  // toolbar actions so the user can't mutate the spec mid-run.
+  const isRunning = useRunStore((s) => s.status === 'running');
+
   const [open, setOpen] = useState<null | 'templates' | 'add' | 'export'>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // Close popovers on outside click
   useEffect(() => {
     function onDown(e: MouseEvent) {
       if (!rootRef.current) return;
@@ -36,9 +63,21 @@ export default function Toolbar({ onRunClick, runActive }: ToolbarProps = {}) {
     return () => window.removeEventListener('mousedown', onDown);
   }, []);
 
-  const fullPipeline = pipeline
-    ? { ...pipeline, nodes, edges }
-    : { id: generatePipelineId(), name: 'Untitled Pipeline', description: '', nodes, edges, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  const fullPipeline = useMemo(
+    () =>
+      pipelineMeta
+        ? { ...pipelineMeta, nodes, edges }
+        : {
+            id: generatePipelineId(),
+            name: 'Untitled Pipeline',
+            description: '',
+            nodes,
+            edges,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+    [pipelineMeta, nodes, edges]
+  );
 
   function downloadFile(content: string, filename: string) {
     const blob = new Blob([content], { type: 'text/plain' });
@@ -47,11 +86,13 @@ export default function Toolbar({ onRunClick, runActive }: ToolbarProps = {}) {
     a.href = url;
     a.download = filename;
     a.click();
-    URL.revokeObjectURL(url);
+    // Defer URL revocation slightly — some browsers race the click
+    // handler with synchronous revoke and lose the download.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   function handleAddNode(kind: NodeKind) {
-    const newNode = createNode(kind, { x: Math.random() * 400 + 100, y: Math.random() * 400 + 100 });
+    const newNode = createNode(kind, pickAddPosition());
     setNodes([...nodes, newNode]);
     setOpen(null);
   }
@@ -66,12 +107,20 @@ export default function Toolbar({ onRunClick, runActive }: ToolbarProps = {}) {
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        if (data.nodes && data.edges) {
-          setNodes(data.nodes);
-          setEdges(data.edges);
+        // Schema-light validation — confirm shape before committing.
+        if (
+          !data ||
+          !Array.isArray(data.nodes) ||
+          !Array.isArray(data.edges) ||
+          data.nodes.some((n: unknown) => typeof (n as { id?: unknown })?.id !== 'string')
+        ) {
+          alert('Invalid pipeline JSON: missing `nodes`/`edges` arrays or malformed nodes.');
+          return;
         }
+        setNodes(data.nodes);
+        setEdges(data.edges);
       } catch {
-        alert('Invalid pipeline JSON file');
+        alert('Could not parse pipeline JSON file. Make sure it was exported by AgentForge.');
       }
     };
     input.click();
@@ -91,11 +140,11 @@ export default function Toolbar({ onRunClick, runActive }: ToolbarProps = {}) {
           <span className="text-[15px] font-semibold text-[#181d26] tracking-display">
             AgentForge
           </span>
-          {pipeline?.name && (
+          {pipelineMeta?.name && (
             <>
               <span className="text-[#e0e2e6]">/</span>
               <span className="text-[13px] text-[rgba(4,14,32,0.69)] tracking-ui">
-                {pipeline.name}
+                {pipelineMeta.name}
               </span>
             </>
           )}
@@ -109,6 +158,8 @@ export default function Toolbar({ onRunClick, runActive }: ToolbarProps = {}) {
         <SecondaryButton
           onClick={() => setOpen(open === 'templates' ? null : 'templates')}
           active={open === 'templates'}
+          disabled={isRunning}
+          title={isRunning ? 'Pipeline is running — stop the run before switching templates' : undefined}
         >
           <Layers size={14} strokeWidth={2} /> Templates
           <ChevronDown size={12} strokeWidth={2.2} className="opacity-60" />
@@ -140,6 +191,8 @@ export default function Toolbar({ onRunClick, runActive }: ToolbarProps = {}) {
         <SecondaryButton
           onClick={() => setOpen(open === 'add' ? null : 'add')}
           active={open === 'add'}
+          disabled={isRunning}
+          title={isRunning ? 'Pipeline is running — stop the run before editing the spec' : undefined}
         >
           <Plus size={14} strokeWidth={2.2} /> Add node
         </SecondaryButton>
@@ -163,8 +216,16 @@ export default function Toolbar({ onRunClick, runActive }: ToolbarProps = {}) {
         )}
       </div>
 
+      {/* Settings */}
+      <SecondaryButton
+        onClick={() => setSettingsOpen(true)}
+        title="API keys and custom models"
+      >
+        <Settings size={14} strokeWidth={2} /> Settings
+      </SecondaryButton>
+
       {/* Import */}
-      <SecondaryButton onClick={handleImport}>
+      <SecondaryButton onClick={handleImport} disabled={isRunning}>
         <Upload size={14} strokeWidth={2} /> Import
       </SecondaryButton>
 
@@ -213,6 +274,8 @@ export default function Toolbar({ onRunClick, runActive }: ToolbarProps = {}) {
           Run
         </button>
       )}
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
@@ -223,15 +286,22 @@ function SecondaryButton({
   children,
   onClick,
   active,
+  disabled,
+  title,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   active?: boolean;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium rounded-[12px] transition-colors tracking-ui border ${
+      disabled={disabled}
+      title={title}
+      className={`flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium rounded-[12px] transition-colors tracking-ui border disabled:opacity-50 disabled:cursor-not-allowed ${
         active
           ? 'bg-[#eef3fb] border-[#bcd0ee] text-[#1b61c9]'
           : 'bg-white border-[#e0e2e6] text-[#181d26] hover:bg-[#f8fafc] hover:border-[#cbd0d7]'

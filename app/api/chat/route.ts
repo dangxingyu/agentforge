@@ -75,26 +75,60 @@ Always include "input" and "output" nodes.
 
 Keep your responses concise. Ask questions as a numbered list. Be direct and helpful.`;
 
-export async function POST(req: NextRequest) {
-  const { messages } = await req.json();
+interface ChatBody {
+  messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  apiKey?: string;
+}
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
+export async function POST(req: NextRequest) {
+  let body: ChatBody;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const messages = body.messages;
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return NextResponse.json(
+      { error: 'Body must include a non-empty `messages` array' },
+      { status: 400 }
+    );
+  }
 
+  // Client-supplied Anthropic key falls back to server env var. The
+  // designer is Anthropic-only — Claude is good at structured pipeline
+  // output and the formatted JSON extraction below is tuned for it.
+  const apiKey = body.apiKey?.trim() || process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json(
+      {
+        error:
+          'No Anthropic API key. Open Settings to paste a key, or set ANTHROPIC_API_KEY on the server.',
+      },
+      { status: 400 }
+    );
+  }
+
+  const client = new Anthropic({ apiKey });
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     async start(controller) {
+      const ctrl = new AbortController();
+      const onAbort = () => ctrl.abort();
+      req.signal.addEventListener('abort', onAbort);
+
       try {
-        const anthropicStream = await client.messages.stream({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4096,
-          system: SYSTEM_PROMPT,
-          messages: messages.slice(-20), // keep last 20 messages for context
-        });
+        const anthropicStream = await client.messages.stream(
+          {
+            model: 'claude-sonnet-4-5-20250929',
+            max_tokens: 4096,
+            system: SYSTEM_PROMPT,
+            messages: messages.slice(-20),
+          },
+          { signal: ctrl.signal }
+        );
 
         let fullText = '';
 
@@ -102,15 +136,11 @@ export async function POST(req: NextRequest) {
           if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
             const text = event.delta.text;
             fullText += text;
-
             const sseData = JSON.stringify({ type: 'text', text });
             controller.enqueue(encoder.encode(`data: ${sseData}\n\n`));
           }
         }
 
-        // Try multiple strategies to extract a pipeline JSON from the
-        // assistant's response. Claude isn't always consistent: it might
-        // emit ```json fences, ``` (no language), or no fence at all.
         const pipeline = extractPipelineJSON(fullText);
         if (pipeline) {
           const pipelineData = JSON.stringify({ type: 'pipeline', pipeline });
@@ -120,9 +150,16 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : 'Unknown error';
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: errMsg })}\n\n`));
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ type: 'error', error: errMsg })}\n\n`)
+        );
       } finally {
-        controller.close();
+        req.signal.removeEventListener('abort', onAbort);
+        try {
+          controller.close();
+        } catch {
+          /* ignore */
+        }
       }
     },
   });

@@ -1,7 +1,6 @@
 import type {
   Pipeline,
   FlowNode,
-  FlowEdge,
   NodeKind,
   NodeData,
   OutputField,
